@@ -8,7 +8,14 @@ from datetime import datetime
 from pytz import timezone
 import os
 
-db = SQL('sqlite:///data/dados.db')
+# Descobre onde está este arquivo (app.py)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+# Monta o caminho completo para data/dados.db
+db_path = os.path.join(BASE_DIR, "data", "dados.db")
+
+# Agora a URL SQLite usa o caminho absoluto
+db = SQL(f"sqlite:///{db_path}")
 # Inicializa o app Flask
 from flask import Flask
 
