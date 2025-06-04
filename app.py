@@ -8,16 +8,15 @@ from datetime import datetime
 from pytz import timezone
 import os
 
-# Descobre onde está este arquivo (app.py)
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-
-# Monta o caminho completo para data/dados.db
-db_path = os.path.join(BASE_DIR, "data", "dados.db")
-
-# Agora a URL SQLite usa o caminho absoluto
-db = SQL(f"sqlite:///{db_path}")
-# Inicializa o app Flask
-from flask import Flask
+var=True
+import shutil
+if var:
+    DATABASE_PATH = "/data/dados.db"
+    if not os.path.exists(DATABASE_PATH):
+        shutil.copy("dados.db", DATABASE_PATH)
+    db = SQL("sqlite:///" + DATABASE_PATH)
+else:
+    db=SQL('sqlite:///data/dados.db')
 
 app = Flask(
     __name__,
@@ -34,10 +33,6 @@ brazil = timezone('America/Sao_Paulo')
 # Inicializa o Socket.IO
 socketio = SocketIO(app, cors_allowed_origins="*")  # "*" aceita conexões de qualquer origem
 
-# Rota simples de teste
-@app.route('/')
-def home():
-    return jsonify({'msg': 'Flask + SocketIO está rodando!'})
 
 
 @app.route('/upload-item-photo', methods=['POST'])
@@ -58,16 +53,12 @@ def upload_item_photo():
     )
     return jsonify({'imageUrl': image_url}), 200
 
-# Evento Socket.IO: conexão
-@socketio.on('connect')
-def handle_connect():
-    print('Cliente conectado!')
-    emit('mensagem', {'data': 'Conexão estabelecida com o servidor!'})
+@app.route('/items-json')
+def items_json():
+    # busca tudo da tabela itens e retorna como JSON
+    registros = db.execute("SELECT * FROM itens")
+    return jsonify(registros)
 
-# Evento Socket.IO: desconexão
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Cliente desconectado!')
 
 @socketio.on("getDados")
 def getDados():
