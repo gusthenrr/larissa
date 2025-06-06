@@ -239,12 +239,9 @@ def upload_item_photo():
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
 
-    # gera URL pública completa
-    image_url = url_for(
-        'data',
-        filename=f'uploads/{filename}',
-        _external=True
-    )
+    # Gera a URL correta para acessar a imagem via /data/uploads/...
+    image_url = f"{request.host_url}data/uploads/{filename}"
+
     return jsonify({'imageUrl': image_url}), 200
 
 @app.route('/items-json')
