@@ -240,7 +240,7 @@ def upload_item_photo():
     file.save(filepath)
 
     # Gera a URL correta para acessar a imagem via /data/uploads/...
-    image_url = f"{request.host_url}data/uploads/{filename}"
+    image_url = f"{request.host_url}/data/uploads/{filename}"
 
     return jsonify({'imageUrl': image_url}), 200
 
