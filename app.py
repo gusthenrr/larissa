@@ -46,8 +46,8 @@ else:
 
 CORS(app, resources={r"/*": {"origins": "*"}})  # Permite todas as origens
 brazil = timezone('America/Sao_Paulo')
-UPLOAD_FOLDER = os.path.join(app.static_folder, 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+os.makedirs(app.static_folder, exist_ok=True)
 
 @app.route("/")
 def home():
@@ -240,7 +240,8 @@ def upload_item_photo():
     file.save(filepath)
 
     # Gera a URL correta para acessar a imagem via /data/uploads/...
-    image_url = f"{request.host_url}/data/uploads/{filename}"
+    image_url = f"{request.host_url}/data/{filename}"
+    print(f"Image URL: {image_url}")
 
     return jsonify({'imageUrl': image_url}), 200
 
