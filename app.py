@@ -236,7 +236,7 @@ def upload_item_photo():
 
     file = request.files['photo']
     filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    filepath = os.path.join(app.static_folder, filename)
     file.save(filepath)
 
     # Gera a URL correta para acessar a imagem via /data/uploads/...
