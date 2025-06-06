@@ -29,8 +29,8 @@ if manipule:
 # Inicialização do app Flask e SocketIO
 app = Flask(
     __name__,
-    static_folder='static',      # pasta que vai servir arquivos
-    static_url_path='/static'    # endereço para acessar esses arquivos
+    static_folder='data',      # pasta que vai servir arquivos
+    static_url_path='/data'    # endereço para acessar esses arquivos
 )
 app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
@@ -241,7 +241,7 @@ def upload_item_photo():
 
     # gera URL pública completa
     image_url = url_for(
-        'static',
+        'data',
         filename=f'uploads/{filename}',
         _external=True
     )
