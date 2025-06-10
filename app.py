@@ -1320,7 +1320,7 @@ def getCategoriaLojas():
 @socketio.on('get-faturamento')
 def get_faturamento():
     try:
-        dados = db.execute('SELECT SUM(preco_de_venda) as faturamento, SUM(preco_de_custo-preco_de_venda) as lucro, COUNT(*) as vendas, COUNT(*) FILTER( WHERE state = ? )as entregues, COUNT(*) FILTER (WHERE state = ?) as pendentes FROM larissa_pedidos','entregue','pendente')
+        dados = db.execute('SELECT SUM(preco_de_venda) as faturamento, SUM(preco_de_venda-preco_de_custo) as lucro, COUNT(*) as vendas, COUNT(*) FILTER( WHERE state = ? )as entregues, COUNT(*) FILTER (WHERE state = ?) as pendentes FROM larissa_pedidos','entregue','pendente')
         
         dados_row = dados[0]
         faturamento = dados_row.get('faturamento', 'Sem Faturamento')
