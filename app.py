@@ -21,7 +21,7 @@ import subprocess
 import requests
 
 from werkzeug.utils import secure_filename
-var = False
+var = True
 manipule = False
 if manipule:
     subprocess.run(['python','manipule.py'])
