@@ -1304,7 +1304,7 @@ def adicionar_novo_pedido(data):
     telefone = data.get('telefone', '')
     endereco = data.get('endereco','')
     previsao=data.get('previsao','')
-    preco_de_custo=data.get('precoCompra','')
+    preco_de_custo=itemCompleto.get('preco_de_custo','')
     db.execute('INSERT INTO larissa_pedidos (item,nome_comprador,numero_telefone,dia_da_compra,categoria,loja,link,previsao_entrega,endereco,imagem,preco_de_venda,state,preco_de_custo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',item,comprador,telefone,dia,categoria,loja,link,previsao,endereco,imagem,preco_de_venda,'pendente',preco_de_custo)
     getDadosPedidos()
     get_faturamento()
