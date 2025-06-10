@@ -1239,6 +1239,7 @@ def getDadosPedidos():
     todos_dados=db.execute("SELECT * FROM larissa_pedidos")
     print("todos os dados",todos_dados)
     emit("RespostaPedidos",todos_dados,broadcast=True)
+    get_faturamento()
 
 @socketio.on('SaveAlteracoesPedidos')
 def save_alteracoes_pedidos(data):
@@ -1257,6 +1258,7 @@ def save_alteracoes_pedidos(data):
     print('vai update o db')
     db.execute('UPDATE larissa_pedidos SET item=?,link=?,loja=?,categoria=?,imagem=?,endereco=?,dia_da_compra=?,previsao_entrega=?,preco_de_venda=?,preco_de_custo WHERE id = ?',item,link,nome_loja,categoria,imagem,endereco,dia_da_compra,previsao_entrega,preco_de_venda,preco_de_custo,id)
     getDadosPedidos()
+    get_faturamento()
     
 @socketio.on("SaveAlteracoes")
 def saveAlteracoese(data):
@@ -1276,6 +1278,7 @@ def ExcluirPedido(data):
     db.execute("DELETE FROM larissa_pedidos WHERE id=?", id)
     print(f"excluir o pedido  {data['item']} de {data['nome_comprador']}")
     getDadosPedidos()
+    get_faturamento()
 
 @socketio.on("ExcluirItem")
 def ExcluirPedido(data):
@@ -1283,6 +1286,7 @@ def ExcluirPedido(data):
     db.execute("DELETE FROM larissa_itens WHERE id=?", id)
     print(f"excluir o pedido  {data['item']} de {data['nome_comprador']}")
     getDados()
+    get_faturamento()
 
 @socketio.on('AdicionarNovoPedido')
 def adicionar_novo_pedido(data):
@@ -1303,6 +1307,7 @@ def adicionar_novo_pedido(data):
     preco_de_custo=data.get('precoCompra','')
     db.execute('INSERT INTO larissa_pedidos (item,nome_comprador,numero_telefone,dia_da_compra,categoria,loja,link,previsao_entrega,endereco,imagem,preco_de_venda,state,preco_de_custo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',item,comprador,telefone,dia,categoria,loja,link,previsao,endereco,imagem,preco_de_venda,'pendente',preco_de_custo)
     getDadosPedidos()
+    get_faturamento()
 
 @socketio.on("GetCategoriaLoja")
 def getCategoriaLojas():
@@ -1339,6 +1344,7 @@ def change_pedido_state(id,state):
     print ('id', id)
     db.execute('UPDATE larissa_pedidos SET state = ? WHERE id = ?', state, id)
     getDadosPedidos()
+    get_faturamento()
 
 @socketio.on('AdicionarItem')
 def adicionarItem(data):
