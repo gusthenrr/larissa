@@ -21,7 +21,7 @@ import subprocess
 import requests
 
 from werkzeug.utils import secure_filename
-var = True
+var = False
 manipule = False
 if manipule:
     subprocess.run(['python','manipule.py'])
@@ -29,7 +29,7 @@ if manipule:
 # Inicialização do app Flask e SocketIO
 app = Flask(
     __name__,
-    static_folder='data',      # pasta que vai servir arquivos
+    static_folder='/data',      # pasta que vai servir arquivos
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
 app.config['SECRET_KEY'] = 'seu_segredo_aqui'
@@ -1242,9 +1242,9 @@ def getDadosPedidos():
 
 @socketio.on('SaveAlteracoesPedidos')
 def save_alteracoes_pedidos(data):
+    print('entrou savealteracoespedidos')
     id = data.get('id', '')
     item = data.get('item', '')
-    preco = data.get('preco_de_venda', '')
     link = data.get('link', '')
     nome_loja = data.get('loja')
     categoria = data.get('categoria', '')
@@ -1252,7 +1252,10 @@ def save_alteracoes_pedidos(data):
     endereco = data.get('endereco', '')
     dia_da_compra = data.get('dia_da_compra', '')
     previsao_entrega = data.get('previsao_entrega')
-    db.execute('UPDATE larissa_pedidos SET item=?,preco=?,link=?,loja=?,categoria=?,imagem=?,endereco=?,dia_da_compra=?,previsao_entrega=?',item,preco,link,nome_loja,categoria,imagem,endereco,dia_da_compra,previsao_entrega)
+    preco_de_venda = int(data.get('preco_de_venda',0))
+    preco_de_custo = int(data.get('preco_de_custo', 0))
+    print('vai update o db')
+    db.execute('UPDATE larissa_pedidos SET item=?,link=?,loja=?,categoria=?,imagem=?,endereco=?,dia_da_compra=?,previsao_entrega=?,preco_de_venda=?,preco_de_custo WHERE id = ?',item,link,nome_loja,categoria,imagem,endereco,dia_da_compra,previsao_entrega,preco_de_venda,preco_de_custo,id)
     getDadosPedidos()
     
 @socketio.on("SaveAlteracoes")
@@ -1264,7 +1267,8 @@ def saveAlteracoese(data):
     nomeLoja=data['loja']
     categoria=data['categoria']
     imagem=data['imagem']
-    db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=? WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,id)
+    preco_de_custo = data.get('preco_de_custo','')
+    db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=?,preco_de_custo WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,preco_de_custo,id)
 
 @socketio.on("ExcluirPedido")
 def ExcluirPedido(data):
@@ -1287,7 +1291,7 @@ def adicionar_novo_pedido(data):
     dia = agora.strftime('%d-%m-%Y')
     itemCompleto = data.get('itemOriginal',{})
     item = itemCompleto.get('item', '')
-    preco=itemCompleto.get('preco','')
+    preco_de_venda=itemCompleto.get('preco_de_venda','')
     categoria = itemCompleto.get('categoria', '')
     loja = itemCompleto.get('loja', '')
     imagem=itemCompleto.get('imagem','')
@@ -1296,26 +1300,57 @@ def adicionar_novo_pedido(data):
     telefone = data.get('telefone', '')
     endereco = data.get('endereco','')
     previsao=data.get('previsao','')
-    db.execute('INSERT INTO larissa_pedidos (item,nome_comprador,numero_telefone,dia_da_compra,categoria,loja,link,previsao_entrega,endereco,imagem,preco) VALUES (?,?,?,?,?,?,?,?,?,?,?)',item,comprador,telefone,dia,categoria,loja,link,previsao,endereco,imagem,preco)
+    preco_de_custo=data.get('precoCompra','')
+    db.execute('INSERT INTO larissa_pedidos (item,nome_comprador,numero_telefone,dia_da_compra,categoria,loja,link,previsao_entrega,endereco,imagem,preco_de_venda,state,preco_de_custo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',item,comprador,telefone,dia,categoria,loja,link,previsao,endereco,imagem,preco_de_venda,'pendente',preco_de_custo)
     getDadosPedidos()
 
 @socketio.on("GetCategoriaLoja")
 def getCategoriaLojas():
     print("entrou no gett")
-    dados=db.execute("SELECT categoria,loja FROM larissa_itens")
+    dados=db.execute("SELECT DISTINCT categoria,loja FROM larissa_itens")
     print("dados:",dados)
     emit("RespostaCategoriaLoja",dados)
+
+@socketio.on('get-faturamento')
+def get_faturamento():
+    try:
+        dados = db.execute('SELECT SUM(preco_de_venda) as faturamento, SUM(preco_de_custo-preco_de_venda) as lucro, COUNT(*) as vendas, COUNT(*) FILTER( WHERE state = ? )as entregues, COUNT(*) FILTER (WHERE state = ?) as pendentes FROM larissa_pedidos','entregue','pendente')
+        
+        dados_row = dados[0]
+        faturamento = dados_row.get('faturamento', 'Sem Faturamento')
+        lucro = dados_row.get('lucro','Sem Lucro')
+        vendas = dados_row.get('vendas', 'Sem Vendas')
+        pedidos_entregues = dados_row.get('entregues', 'Sem pedidos')
+        pedidos_pendentes = dados_row.get('pendentes', 'Sem pedidos')
+        emit('resposta-get-faturamento', {
+                    'faturamento': faturamento,
+                    'lucro': lucro,
+                    'vendas': vendas,
+                    'pedidos_entregues': pedidos_entregues,
+                    'pedidos_pendentes': pedidos_pendentes,
+                    })                  
+
+    except Exception as e:
+        print ('erro no get-faturamento', e)
+        emit('resposta-get-faturamento',{'faturamento':'Sem Faturamento','lucro':'Sem lucro','vendas':'Sem Vendas'})
+
+@socketio.on('change-pedidos-state')
+def change_pedido_state(id,state):
+    print ('id', id)
+    db.execute('UPDATE larissa_pedidos SET state = ? WHERE id = ?', state, id)
+    getDadosPedidos()
 
 @socketio.on('AdicionarItem')
 def adicionarItem(data):
     print('entrouuuuu')
     item=data['item']
-    link=data['link']
+    link=data.get("link", 'sem link')
+    imagem=data.get('imagem', '')
     nomeLoja=data['selectedLoja']
     categoria=data['selectedCategoria']
-    imagem=data.get("imagem",'')
     preco_de_venda = data.get('preco', '')
-    db.execute("INSERT INTO larissa_itens (item, preco_de_venda, link, loja, categoria, imagem) VALUES (?, ?, ?, ?, ?, ?)",item,preco_de_venda,link,nomeLoja,categoria,imagem)
+    preco_de_custo = data.get('preco_de_custo', '')
+    db.execute("INSERT INTO larissa_itens (item, preco_de_venda, link, loja, categoria, imagem, preco_de_custo) VALUES (?, ?, ?, ?, ?, ?,?)",item,preco_de_venda,link,nomeLoja,categoria,imagem,preco_de_custo)
     print("item guardado")
     getDados()
 
