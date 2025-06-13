@@ -1325,6 +1325,10 @@ def get_faturamento():
         dados_row = dados[0]
         faturamento = dados_row.get('faturamento', 'Sem Faturamento')
         lucro = dados_row.get('lucro','Sem Lucro')
+        if faturamento:
+            faturamento = round(faturamento,2)
+        if lucro:
+            lucro = round(lucro,2)
         vendas = dados_row.get('vendas', 'Sem Vendas')
         pedidos_entregues = dados_row.get('entregues', 'Sem pedidos')
         pedidos_pendentes = dados_row.get('pendentes', 'Sem pedidos')
@@ -1355,8 +1359,8 @@ def adicionarItem(data):
     imagem=data.get('imagem', '')
     nomeLoja=data['selectedLoja']
     categoria=data['selectedCategoria']
-    preco_de_venda = data.get('preco', '')
-    preco_de_custo = data.get('preco_de_custo', '')
+    preco_de_custo = data.get('preco_de_custo', 0)
+    preco_de_venda = data.get('preco', preco_de_custo*2)
     db.execute("INSERT INTO larissa_itens (item, preco_de_venda, link, loja, categoria, imagem, preco_de_custo) VALUES (?, ?, ?, ?, ?, ?,?)",item,preco_de_venda,link,nomeLoja,categoria,imagem,preco_de_custo)
     print("item guardado")
     getDados()
