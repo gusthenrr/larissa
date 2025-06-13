@@ -229,6 +229,11 @@ def change_brinde():
 
 
 #larissaaa
+@app.route('/data/<path:filename>')
+def serve_data_file(filename):
+    return send_from_directory('/data', filename)
+
+
 @app.route('/upload-item-photo', methods=['POST'])
 def upload_item_photo():
     if 'photo' not in request.files:
