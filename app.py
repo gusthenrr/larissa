@@ -32,6 +32,7 @@ app = Flask(
     static_folder='/data',      # pasta que vai servir arquivos
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
+
 app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
@@ -256,7 +257,7 @@ def upload_item_photo():
     file.save(filepath)
 
     # Gera a URL correta para acessar a imagem via /data/uploads/...
-    image_url = f"{request.host_url}/data/{filename}"
+    image_url = f"https://flask-backend-server-yxom.onrender.com/data/{filename}"
     print(f"Image URL: {image_url}")
 
     return jsonify({'imageUrl': image_url}), 200
@@ -1287,7 +1288,7 @@ def saveAlteracoese(data):
     preco_de_custo = data.get('preco_de_custo',0)
     preco=data.get('preco_de_venda', preco_de_custo)
     db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=?,preco_de_custo=? WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,preco_de_custo,id)
-    getDados()
+    getDados
 
 @socketio.on("ExcluirPedido")
 def ExcluirPedido(data):
