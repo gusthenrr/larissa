@@ -1253,10 +1253,10 @@ def save_alteracoes_pedidos(data):
     endereco = data.get('endereco', '')
     dia_da_compra = data.get('dia_da_compra', '')
     previsao_entrega = data.get('previsao_entrega')
-    preco_de_venda = int(data.get('preco_de_venda',0))
-    preco_de_custo = int(data.get('preco_de_custo', 0))
+    preco_de_venda = float(data.get('preco_de_venda',0))
+    preco_de_custo = float(data.get('preco_de_custo', 0))
     print('vai update o db')
-    db.execute('UPDATE larissa_pedidos SET item=?,link=?,loja=?,categoria=?,imagem=?,endereco=?,dia_da_compra=?,previsao_entrega=?,preco_de_venda=?,preco_de_custo WHERE id = ?',item,link,nome_loja,categoria,imagem,endereco,dia_da_compra,previsao_entrega,preco_de_venda,preco_de_custo,id)
+    db.execute('UPDATE larissa_pedidos SET item=?,link=?,loja=?,categoria=?,imagem=?,endereco=?,dia_da_compra=?,previsao_entrega=?,preco_de_venda=?,preco_de_custo=? WHERE id = ?',item,link,nome_loja,categoria,imagem,endereco,dia_da_compra,previsao_entrega,preco_de_venda,preco_de_custo,id)
     getDadosPedidos()
     get_faturamento()
     
@@ -1264,12 +1264,12 @@ def save_alteracoes_pedidos(data):
 def saveAlteracoese(data):
     id=data['id']
     item=data['item']
-    preco=data.get('preco_de_venda', '')
     link=data['link']
     nomeLoja=data['loja']
     categoria=data['categoria']
     imagem=data['imagem']
-    preco_de_custo = data.get('preco_de_custo','')
+    preco_de_custo = data.get('preco_de_custo',0)
+    preco=data.get('preco_de_venda', preco_de_custo)
     db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=?,preco_de_custo WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,preco_de_custo,id)
 
 @socketio.on("ExcluirPedido")
@@ -1295,7 +1295,6 @@ def adicionar_novo_pedido(data):
     dia = agora.strftime('%d-%m-%Y')
     itemCompleto = data.get('itemOriginal',{})
     item = itemCompleto.get('item', '')
-    preco_de_venda=itemCompleto.get('preco_de_venda','')
     categoria = itemCompleto.get('categoria', '')
     loja = itemCompleto.get('loja', '')
     imagem=itemCompleto.get('imagem','')
@@ -1304,7 +1303,8 @@ def adicionar_novo_pedido(data):
     telefone = data.get('telefone', '')
     endereco = data.get('endereco','')
     previsao=data.get('previsao','')
-    preco_de_custo=itemCompleto.get('preco_de_custo','')
+    preco_de_custo=itemCompleto.get('preco_de_custo',0)
+    preco_de_venda=itemCompleto.get('preco_de_venda',preco_de_custo)
     print("peguei o custo:", preco_de_custo)
     db.execute('INSERT INTO larissa_pedidos (item,nome_comprador,numero_telefone,dia_da_compra,categoria,loja,link,previsao_entrega,endereco,imagem,preco_de_venda,state,preco_de_custo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',item,comprador,telefone,dia,categoria,loja,link,previsao,endereco,imagem,preco_de_venda,'pendente',preco_de_custo)
     getDadosPedidos()
@@ -1338,7 +1338,7 @@ def get_faturamento():
                     'vendas': vendas,
                     'pedidos_entregues': pedidos_entregues,
                     'pedidos_pendentes': pedidos_pendentes,
-                    })                  
+                    },broadcast=True)                  
 
     except Exception as e:
         print ('erro no get-faturamento', e)
