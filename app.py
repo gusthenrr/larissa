@@ -43,7 +43,7 @@ if var:
     db = SQL("sqlite:///" + DATABASE_PATH)
 else:
     db=SQL('sqlite:///data/dados.db')
-
+CORS(app, resources={r"/data/*": {"origins": "*"}})
 CORS(app, resources={r"/*": {"origins": "*"}})  # Permite todas as origens
 brazil = timezone('America/Sao_Paulo')
 
@@ -229,9 +229,15 @@ def change_brinde():
 
 
 #larissaaa
+from flask import send_file
+import mimetypes
+
 @app.route('/data/<path:filename>')
 def serve_data_file(filename):
-    return send_from_directory('/data', filename)
+    filepath = os.path.join('/data', filename)
+    mimetype = mimetypes.guess_type(filepath)[0] or 'image/jpeg'
+    return send_file(filepath, mimetype=mimetype)
+
 
 
 @app.route('/upload-item-photo', methods=['POST'])
