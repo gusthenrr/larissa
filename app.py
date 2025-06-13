@@ -232,11 +232,16 @@ def change_brinde():
 from flask import send_file
 import mimetypes
 
+from flask import send_file
+import mimetypes
+import os
+
 @app.route('/data/<path:filename>')
 def serve_data_file(filename):
     filepath = os.path.join('/data', filename)
     mimetype = mimetypes.guess_type(filepath)[0] or 'image/jpeg'
     return send_file(filepath, mimetype=mimetype)
+
 
 
 
@@ -1281,7 +1286,8 @@ def saveAlteracoese(data):
     imagem=data['imagem']
     preco_de_custo = data.get('preco_de_custo',0)
     preco=data.get('preco_de_venda', preco_de_custo)
-    db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=?,preco_de_custo WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,preco_de_custo,id)
+    db.execute("UPDATE larissa_itens SET item=?,preco_de_venda=?,link=?,loja=?,categoria=?,imagem=?,preco_de_custo=? WHERE id=?",item,preco,link,nomeLoja,categoria,imagem,preco_de_custo,id)
+    getDados()
 
 @socketio.on("ExcluirPedido")
 def ExcluirPedido(data):
@@ -1295,7 +1301,6 @@ def ExcluirPedido(data):
 def ExcluirPedido(data):
     id=data['id']
     db.execute("DELETE FROM larissa_itens WHERE id=?", id)
-    print(f"excluir o pedido  {data['item']} de {data['nome_comprador']}")
     getDados()
     get_faturamento()
 
