@@ -1392,7 +1392,7 @@ def buscar_menu_data(emitir_broadcast):
         print('entrou buscar menu data')
 
         # Puxe só as colunas que você realmente usa
-        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes FROM cardapio')
+        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes, image FROM cardapio')
 
         data_geral_atualizado = []
         for row in data_geral:
@@ -1444,6 +1444,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
