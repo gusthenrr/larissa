@@ -19,6 +19,7 @@ import logging
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 import subprocess
 import requests
+import re
 
 from werkzeug.utils import secure_filename
 var = True
@@ -1382,10 +1383,64 @@ def adicionarItem(data):
     print("item guardado")
     getDados()
 
+import re
+from flask_socketio import emit  # ou use socketio.emit se preferir
+
+@socketio.on('buscar_menu_data')
+def buscar_menu_data(emitir_broadcast):
+    try:
+        print('entrou buscar menu data')
+
+        # Puxe só as colunas que você realmente usa
+        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes FROM cardapio')
+
+        data_geral_atualizado = []
+        for row in data_geral:
+            item_nome = (row.get('item') or '').strip()
+            cat_id = row.get('categoria_id')
+
+            # Classificação
+            if (cat_id in (1, 2)) and (item_nome not in ['amendoim', 'milho', 'Pack de seda', 'cigarro', 'bic', 'dinheiro']):
+                categoria_item = 'bebida'
+            elif (cat_id == 3) or (item_nome in ['amendoim', 'milho']):  # corrigido 'amendoim'
+                categoria_item = 'comida'
+            else:
+                categoria_item = 'outros'
+
+            # Formatar opções (seguro para None/vazio)
+            opcoes_str = row.get('opcoes') or ''
+            # pega "Titulo(conteudo)" sem ser guloso além do próximo ')'
+            matches = re.findall(r'([A-Za-zÀ-ÿ]+)\(([^)]*)\)', opcoes_str)
+
+            options = {}
+            for opt_key, conteudo in matches:
+                itens = [i.strip() for i in conteudo.split('-') if i.strip()]
+                options[opt_key] = itens
+
+            data_geral_atualizado.append({
+                'id': row['id'],
+                'name': item_nome,
+                'price': row.get('preco'),
+                'categoria': categoria_item,
+                'subCategoria': 'outros',
+                'image': 'imagem_aqui',
+                'options': options
+            })
+
+        # Envia para quem pediu este evento; se quiser broadcast, use broadcast=True
+        emit('menuData', data_geral_atualizado, broadcast = emitir_broadcast)
+
+    except Exception as e:
+        print('erro ao buscar_menu_data:', e)
+
+        
+    
+
 
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
