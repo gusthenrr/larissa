@@ -63,8 +63,8 @@ def salvarTokenCargo():
     print(f'data {data}, username {username}, token {token}')
     if db.execute('SELECT * FROM tokens WHERE token =?',token):
         db.execute('DELETE FROM tokens WHERE token = ?',token)
-    
-    db.execute('INSERT INTO tokens (username,cargo,token) VALUES (?,?,?)',username,cargo,token)
+    if token and token!='Sem Token':
+        db.execute('INSERT INTO tokens (username,cargo,token) VALUES (?,?,?)',username,cargo,token)
     
 
     return "cargo e user inserido com sucesso"
@@ -72,9 +72,9 @@ def salvarTokenCargo():
 def enviar_notificacao_expo(cargo,titulo,corpo,token_user,canal="default"):
     print(f'cargo {cargo} titulo, {titulo},corpo {corpo} canal {canal}')
     if cargo:
-        tokens = db.execute('SELECT token FROM tokens WHERE cargo = ? GROUP BY token',cargo)
+        tokens = db.execute('SELECT token FROM tokens WHERE cargo = ? AND token != ? GROUP BY token',cargo,'Sem Token')
     else:
-        tokens = db.execute('SELECT token FROM tokens GROUP BY token')
+        tokens = db.execute('SELECT token FROM tokens WHERE token != ? GROUP BY token','Sem Token')
     tokens = [row for row in tokens if row['token'] != token_user]
     respostas = []
     for row in tokens:
@@ -1388,3 +1388,4 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
