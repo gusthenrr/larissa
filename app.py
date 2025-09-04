@@ -629,12 +629,14 @@ def faturamento(data):
     desconto = 0
     for row in faturamentoDict:
         if row['tipo']=='caixinha':
-            caixinha = row['valor_total']
+            caixinha += row['valor_total']
         elif row['tipo']=='10%':
-            dezporcento = row['valor_total']
+            dezporcento += row['valor_total']
         elif row['tipo']=='desconto' :
-            desconto = row['valor_total']*-1
-        faturamento += row['valor_total'] 
+            desconto += row['valor_total']
+        faturamento += row['valor_total']
+        faturamento -=desconto
+        
     
     
     pedidosQuantDict = db.execute('SELECT SUM(quantidade) AS quantidade_total,SUM(preco) AS preco_total,categoria,preco FROM pedidos WHERE dia = ? GROUP BY categoria ORDER BY categoria ASC',dia)
@@ -682,8 +684,6 @@ def alterarValor(data):
     comanda = data.get('comanda')
     print(tipo)
     print(valor)
-    if tipo == 'desconto':
-        valor*=-1
         
     db.execute('INSERT INTO pagamentos(valor,comanda,ordem,tipo,dia) VALUES (?,?,?,?,?)',valor,comanda,0,tipo,dia)
     faturamento(True)
@@ -1386,4 +1386,5 @@ def adicionarItem(data):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
+
     socketio.run(app, host='0.0.0.0', port=port)
