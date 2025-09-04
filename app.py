@@ -1392,11 +1392,11 @@ def buscar_menu_data(emitir_broadcast):
         print('entrou buscar menu data')
 
         # Puxe só as colunas que você realmente usa
-        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes, image FROM cardapio')
+        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr FROM cardapio WHERE usable_on_qr = ?',1)
 
         data_geral_atualizado = []
         for row in data_geral:
-            item_nome = (row.get('item') or '').strip()
+            item_nome = (row.get('name_on_qr') or '').strip()
             if not item_nome:
                 continue
             cat_id = row.get('categoria_id')
@@ -1410,7 +1410,9 @@ def buscar_menu_data(emitir_broadcast):
                 categoria_item = 'outros'
 
             # Formatar opções (seguro para None/vazio)
-            opcoes_str = row.get('opcoes') or ''
+            
+            opcoes_str = row.get('options_on_qr','')
+            
             # pega "Titulo(conteudo)" sem ser guloso além do próximo ')'
             matches = re.findall(r'([A-Za-zÀ-ÿ]+)\(([^)]*)\)', opcoes_str)
 
@@ -1444,6 +1446,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
