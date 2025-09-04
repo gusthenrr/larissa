@@ -1425,7 +1425,7 @@ def buscar_menu_data(emitir_broadcast):
                 'price': row.get('preco'),
                 'categoria': categoria_item,
                 'subCategoria': 'outros',
-                'image': 'imagem_aqui',
+                'image': row.get('image',None),
                 'options': options
             })
 
@@ -1444,6 +1444,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
