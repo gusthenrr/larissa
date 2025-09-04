@@ -1391,35 +1391,41 @@ def buscar_menu_data(emitir_broadcast):
     try:
         print('entrou buscar menu data')
 
-        # Puxe só as colunas que você realmente usa
-        data_geral = db.execute('SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr FROM cardapio WHERE usable_on_qr = ?',1)
+        data_geral = db.execute(
+            'SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr FROM cardapio WHERE usable_on_qr = ?',
+            1
+        )
 
         data_geral_atualizado = []
         for row in data_geral:
             item_nome = (row.get('name_on_qr') or '').strip()
             if not item_nome:
                 continue
+
             cat_id = row.get('categoria_id')
 
             # Classificação
             if (cat_id in (1, 2)) and (item_nome not in ['amendoim', 'milho', 'Pack de seda', 'cigarro', 'bic', 'dinheiro']) and not item_nome.startswith('acai'):
                 categoria_item = 'bebida'
-            elif (cat_id == 3) or (item_nome in ['amendoim', 'milho']) or (item_nome.startswith('acai')):  # corrigido 'amendoim'
+            elif (cat_id == 3) or (item_nome in ['amendoim', 'milho']) or (item_nome.startswith('acai')):
                 categoria_item = 'comida'
             else:
                 categoria_item = 'outros'
 
-            # Formatar opções (seguro para None/vazio)
-            
-            opcoes_str = row.get('options_on_qr','')
-            
+            # --- Coalesce seguro para options_on_qr ---
+            opcoes_str = row.get('options_on_qr')
+            if opcoes_str is None:
+                opcoes_str = ''
+            elif not isinstance(opcoes_str, str):
+                opcoes_str = str(opcoes_str)
+
             # pega "Titulo(conteudo)" sem ser guloso além do próximo ')'
-            matches = re.findall(r'([A-Za-zÀ-ÿ]+)\(([^)]*)\)', opcoes_str)
+            matches = re.findall(r'([A-Za-zÀ-ÿ\' ]+)\(([^)]*)\)', opcoes_str)
 
             options = {}
             for opt_key, conteudo in matches:
                 itens = [i.strip() for i in conteudo.split('-') if i.strip()]
-                options[opt_key] = itens
+                options[opt_key.strip()] = itens
 
             data_geral_atualizado.append({
                 'id': row['id'],
@@ -1427,12 +1433,11 @@ def buscar_menu_data(emitir_broadcast):
                 'price': row.get('preco'),
                 'categoria': categoria_item,
                 'subCategoria': 'outros',
-                'image': row.get('image',None),
+                'image': row.get('image') or None,
                 'options': options
             })
 
-        # Envia para quem pediu este evento; se quiser broadcast, use broadcast=True
-        emit('menuData', data_geral_atualizado, broadcast = emitir_broadcast)
+        emit('menuData', data_geral_atualizado, broadcast=emitir_broadcast)
 
     except Exception as e:
         print('erro ao buscar_menu_data:', e)
@@ -1446,6 +1451,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
