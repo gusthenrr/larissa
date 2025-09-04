@@ -1448,8 +1448,16 @@ def buscar_menu_data(emitir_broadcast):
     except Exception as e:
         print('erro ao buscar_menu_data:', e)
 
-        
+@socketio.on('invocar_atendente')
+def invocar_antendente(data):
+    comanda = data.get('comanda')
+    hoje = datetime.now()
+    status = data.get('status')
+    #horario = hoje.strftime('')
     
+    #db.execute('INSERT into invocações_atendentes (comanda,horario,status,dia) VALUES (?,?,?,?)',)
+        
+    return {'status':'atendente_chamado'}200
 
 
 
@@ -1457,6 +1465,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
