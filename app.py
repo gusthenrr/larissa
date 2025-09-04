@@ -1392,7 +1392,7 @@ def buscar_menu_data(emitir_broadcast):
         print('entrou buscar menu data')
 
         data_geral = db.execute(
-            'SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr FROM cardapio WHERE usable_on_qr = ?',
+            'SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr, subcategoria FROM cardapio WHERE usable_on_qr = ?',
             1
         )
 
@@ -1432,7 +1432,7 @@ def buscar_menu_data(emitir_broadcast):
                 'name': item_nome,
                 'price': row.get('preco'),
                 'categoria': categoria_item,
-                'subCategoria': 'outros',
+                'subCategoria': row.get('subcategoria','outros'),
                 'image': row.get('image') or None,
                 'options': options
             })
@@ -1451,6 +1451,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
