@@ -1449,12 +1449,11 @@ def buscar_menu_data(emitir_broadcast):
         print('erro ao buscar_menu_data:', e)
 
 @socketio.on('enviar_pedido_on_qr')
-def enviar_pedido_on_qr(data):
+def enviar_pedido_on_qr(data,comanda):
     print(f'enviar pedido on qr:\n {data}')
+    print(f'comanda {comanda}')
     dia = datetime.now(brazil).date()
     for row in data:
-        #falta implementar comanda
-        comanda = row.get('comanda')
         subcategoria = row.get('subcategoria')
         pedido = row.get('name')
         preco = float(row.get('price'))
