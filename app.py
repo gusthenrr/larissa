@@ -1461,7 +1461,7 @@ def invocar_antendente(data):
     
     #db.execute('INSERT into invocações_atendentes (comanda,horario,status,dia) VALUES (?,?,?,?)',)
         
-    return {'status':'atendente_chamado'}200
+    return {'status':'atendente_chamado'},200
 
 
 
@@ -1469,6 +1469,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
