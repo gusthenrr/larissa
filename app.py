@@ -1393,7 +1393,7 @@ def buscar_menu_data(emitir_broadcast):
 
         data_geral = db.execute(
             '''
-            SELECT id, item, preco, categoria_id, opcoes, image, options_on_qr, name_on_qr, subcategoria
+            SELECT id, item, preco, categoria_id, image, options_on_qr, name_on_qr, subcategoria
             FROM cardapio
             WHERE usable_on_qr = ?
             ORDER BY name_on_qr ASC
@@ -1451,6 +1451,45 @@ def buscar_menu_data(emitir_broadcast):
 @socketio.on('enviar_pedido_on_qr')
 def enviar_pedido_on_qr(data):
     print(f'enviar pedido on qr:\n {data}')
+    dia = datetime.now(brazil).date()
+    for row in data:
+        #falta implementar comanda
+        comanda = row.get('comanda')
+        subcategoria = row.get('subcategoria')
+        pedido = row.get('name')
+        preco = float(row.get('price'))
+        categoria = row.get('categoria')
+        quantidade = row.get('quantity')
+        options = row.get('selectedOptions')
+        obs = row.get('observations')
+        extra = ''
+        if categoria=='comida':
+            if pedido not in ['amendoim', 'milho']:
+                categoria_id = 1
+            elif pedido.startswith('acai'):
+                categoria_id = 2
+            else :
+                categoria_id = 3
+        else:
+            if subcategoria in ['outros,cervejas']:
+                categoria_id = 1
+            else:
+                categoria_id = 2
+
+        agr = datetime.now()
+        hora_min = agr.strftime("%H:%M")
+        total_extra = sum(int(float(m.group(1).replace(',','.'))) 
+        for v in options.values() if (m := re.search(r'\+(\d+(?:[.,]\d+)?)$', v)))
+        limpo = {k: re.sub(r'\+\d+(?:[.,]\d+)?$', '', v).replace('+', ' ').strip() for k, v in options.items()}
+        for i in limpo:
+            extra+=i+', '
+        extra+= obs
+        preco+=float(total_extra)
+        db.execute('''INSERT INTO pedidos (comanda,pedido,quantidade,extra,preco,categoria,inicio,estado,nome,ordem,dia)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)''',comanda,pedido,quantidade,extra, preco,categoria_id,hora_min,'A Fazer','-1',0,dia)
+
+
+
 
 @socketio.on('invocar_atendente')
 def invocar_antendente(data):
@@ -1469,13 +1508,6 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
-
-
-
-
-
-
-
 
 
 
