@@ -1448,6 +1448,10 @@ def buscar_menu_data(emitir_broadcast):
     except Exception as e:
         print('erro ao buscar_menu_data:', e)
 
+@socketio.on('enviar_pedido_on_qr')
+def enviar_pedido_on_qr(data):
+    print(f'enviar pedido on qr:\n {data}')
+
 @socketio.on('invocar_atendente')
 def invocar_antendente(data):
     comanda = data.get('comanda')
@@ -1465,6 +1469,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port)
+
 
 
 
