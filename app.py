@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 from pytz import timezone
-import os
+import os, random
 import pandas as pd
 from io import BytesIO
 import logging
@@ -20,6 +20,8 @@ logging.getLogger('matplotlib').setLevel(logging.WARNING)
 import subprocess
 import requests
 import re
+from twilio.rest import Client
+from dotenv import load_dotenv
 
 from werkzeug.utils import secure_filename
 var = True
@@ -38,6 +40,35 @@ app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
+
+load_dotenv()
+ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO")
+AUTH_TOKEN  = os.getenv("AUTH_TOKEN_TWILIO")
+VERIFY_SID  = os.getenv("VERIFY_SID") 
+
+client = Client(ACCOUNT_SID, AUTH_TOKEN)
+
+
+@app.route("/auth/sms/create", methods=["POST"])
+def send_verification():
+    print('creatingsms')
+    phone = request.json.get("phone")
+    v = client.verify.v2.services(VERIFY_SID).verifications.create(to=phone, channel="sms")
+    print(v)
+    return jsonify({"status": v.status}), 200
+
+@app.route("/auth/sms/check", methods=["POST"])
+def check_verification():
+    print('verification')
+    phone = request.json.get("phone")
+    code = request.json.get("code")
+    chk = client.verify.v2.services(VERIFY_SID).verification_checks.create(to=phone, code=code)
+    print(chk)
+    return jsonify({"status": chk.status})  # 'approved' se ok
+
+
+
+
 if var:
     DATABASE_PATH = "/data/dados.db"
     if not os.path.exists(DATABASE_PATH):
@@ -45,11 +76,20 @@ if var:
     db = SQL("sqlite:///" + DATABASE_PATH)
 else:
     db=SQL('sqlite:///data/dados.db')
-CORS(app, resources={r"/data/*": {"origins": "*"}})
 CORS(app, resources={r"/*": {"origins": "*"}})  # Permite todas as origens
 brazil = timezone('America/Sao_Paulo')
 
 os.makedirs(app.static_folder, exist_ok=True)
+
+
+
+# def now_utc_iso():
+#     return datetime.now(pytz.utc).isoformat()
+# def expires_in_minutes_iso(minutes: int):
+#     return (datetime.now(pytz.utc) + timedelta(minutes=minutes)).isoformat()
+# def generate_code(n: int = 6) -> str:
+#     return f"{random.randint(0, 10**n - 1):0{n}d}"
+
 
 @app.route("/")
 def home():
@@ -1455,7 +1495,9 @@ def enviar_pedido_on_qr(data,comanda):
     dia = datetime.now(brazil).date()
     for row in data:
         subcategoria = row.get('subcategoria')
-        pedido = row.get('name')
+        pedido_dict = db.execute('SELECT item FROM cardapio WHERE id = ?',row.get('id'))
+        if pedido_dict:
+            pedido = pedido_dict[0].get('item')
         preco = float(row.get('price'))
         categoria = row.get('categoria')
         quantidade = row.get('quantity')
@@ -1477,17 +1519,44 @@ def enviar_pedido_on_qr(data,comanda):
 
         agr = datetime.now()
         hora_min = agr.strftime("%H:%M")
-        total_extra = sum(int(float(m.group(1).replace(',','.'))) 
-        for v in options.values() if (m := re.search(r'\+(\d+(?:[.,]\d+)?)$', v)))
-        limpo = {k: re.sub(r'\+\d+(?:[.,]\d+)?$', '', v).replace('+', ' ').strip() for k, v in options.items()}
-        for i in limpo:
-            extra+=i+', '
-        extra+= obs
-        preco+=float(total_extra)
+        extra = None
+        if options:
+            extra = auxiliar_dicionario_para_string(options)
+            if obs:
+                extra = (extra + ", " + 'Obs: '+ obs).strip(", ")
+        elif obs:
+            extra = obs
+
         db.execute('''INSERT INTO pedidos (comanda,pedido,quantidade,extra,preco,categoria,inicio,estado,nome,ordem,dia)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)''',comanda,pedido,quantidade,extra, preco,categoria_id,hora_min,'A Fazer','-1',0,dia)
 
 
+def auxiliar_dicionario_para_string(options):
+    try:
+        limpo = {}
+        for k, v in options.items():
+            if isinstance(v, str):
+                val = re.sub(r'\+\d+(?:[.,]\d+)?$', '', v).replace('+', ' ').strip()
+                limpo[k] = val
+            elif isinstance(v, list):
+                limpo[k] = [re.sub(r'\+\d+(?:[.,]\d+)?$', '', item).replace('+', ' ').strip() for item in v]
+            else:
+                limpo[k] = v
+
+        parts = []
+        for k, v in limpo.items():
+            if isinstance(v, list):
+                for item in v:
+                    if item:
+                        parts.append(f"{k}: {item}")
+            else:
+                if v:
+                    parts.append(f"{k}: {v}")
+
+        extra = ", ".join(parts)
+        return extra
+    except Exception as e:
+        print('erro_auxiliar_dicionario_para_string:', e)
 
 
 @socketio.on('invocar_atendente')
@@ -1503,10 +1572,13 @@ def invocar_antendente(data):
 
 
 
+
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
-    socketio.run(app, host='0.0.0.0', port=port)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
 
 
 
