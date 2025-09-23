@@ -11,6 +11,7 @@ colorama==0.4.6
 cs50==9.3.4
 dnspython==2.6.1
 docutils==0.16
+dotenv==0.9.9
 eventlet==0.39.0
 Flask==3.0.3
 Flask-Cors==4.0.1
@@ -54,4 +55,5 @@ wsproto==1.2.0
 pandas==2.2.3
 matplotlib==3.10.1
 Werkzeug==3.0.4
+
 
