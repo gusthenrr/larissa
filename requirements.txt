@@ -30,6 +30,7 @@ packaging==24.1
 pathspec==0.10.1
 pyasn1==0.6.1
 Pygments==2.18.0
+PyJWT==2.10.1
 python-dateutil==2.9.0.post0
 python-engineio==4.11.2
 python-socketio==5.12.1
@@ -55,5 +56,6 @@ wsproto==1.2.0
 pandas==2.2.3
 matplotlib==3.10.1
 Werkzeug==3.0.4
+
 
 
