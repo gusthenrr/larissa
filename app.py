@@ -22,6 +22,7 @@ import requests
 import re
 from twilio.rest import Client
 from dotenv import load_dotenv
+import jwt
 
 from werkzeug.utils import secure_filename
 var = True
@@ -40,6 +41,7 @@ app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
+SECRET_KEY = "minha_chave_super_secreta"
 
 load_dotenv()
 ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO")
@@ -47,6 +49,13 @@ AUTH_TOKEN  = os.getenv("AUTH_TOKEN_TWILIO")
 VERIFY_SID  = os.getenv("VERIFY_SID") 
 
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
+
+CORS(
+    app,
+    resources={r"/*": {"origins": '*'}},
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 
 @app.route("/auth/sms/create", methods=["POST"])
@@ -76,7 +85,7 @@ if var:
     db = SQL("sqlite:///" + DATABASE_PATH)
 else:
     db=SQL('sqlite:///data/dados.db')
-CORS(app, resources={r"/*": {"origins": "*"}})  # Permite todas as origens
+
 brazil = timezone('America/Sao_Paulo')
 
 os.makedirs(app.static_folder, exist_ok=True)
@@ -95,7 +104,44 @@ os.makedirs(app.static_folder, exist_ok=True)
 def home():
     return "Aplicação funcionando!", 200
 
-@app.route('/salvarTokenCargo', methods=['POST'])
+from datetime import datetime, timedelta
+from flask import request, jsonify
+
+@app.route('/guardar_login', methods=['POST'])
+def guardar_login():
+    print('entrou guardar login')
+    data = request.get_json(silent=True) or {}
+    number = data.get('numero')
+
+    if not number:
+        return jsonify({"error": "Campo 'number' é obrigatório."}), 400
+
+    # Busca 1 usuário; evite depender de != 'bloqueado' no WHERE para mensagens claras
+    rows = db.execute(
+        'SELECT numero, Nome, status FROM usuarios WHERE numero = ? LIMIT 1',
+        number
+    )
+
+    if not rows:
+        db.execute('INSERT INTO usuarios (numero,Nome,status) VALUES (?,?,?)',number,f'nome:{number}','aprovado')
+        rows = [{'numero':number,'Nome':f'nome:{number}','status':'aprovado'}]
+
+    user = rows[0]
+    if user.get('status') == 'bloqueado':
+        return jsonify({"error": "Usuário bloqueado."}), 403
+
+    payload = {
+        "sub": str(user["numero"]),             # subject do token (id/numero)
+        "name": user["Nome"],
+    }
+
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    # PyJWT v2 já retorna str; se for bytes em versões antigas: token = token.decode()
+
+    return jsonify({"authToken": token}), 200
+
+
+@app.route('/salvarTokenCarg"o', methods=['POST'])
 def salvarTokenCargo():
     data = request.get_json()
     username = data.get('username')
@@ -142,6 +188,14 @@ def enviar_notificacao_expo(cargo,titulo,corpo,token_user,canal="default"):
 def atualizar_faturamento_diario():
     db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ?',0,'ADM')
     db.execute('DELETE FROM tokens WHERE cargo!=?','ADM')
+    #end_p_dict = db.execute('SELECT itens FROM promotions WHERE dia_end = ?',datetime.now().date())
+    # if end_p_dict:  
+    #     for row in end_p_dict:
+    #         itens = [i.strip() for i in row['itens'].split(',')]
+    #         for item in itens:
+    #             db.execute('UPDATE pedidos SET preco_atual = preco WHERE item = ?',item)
+
+
 
 
 # Agendador para rodar à meia-noite
@@ -1578,7 +1632,7 @@ def invocar_antendente(data):
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
 
 
 
