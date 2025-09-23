@@ -118,13 +118,13 @@ def guardar_login():
 
     # Busca 1 usuário; evite depender de != 'bloqueado' no WHERE para mensagens claras
     rows = db.execute(
-        'SELECT numero, Nome, status FROM clientes WHERE numero = ? LIMIT 1',
+        'SELECT numero, nome, status FROM clientes WHERE numero = ? LIMIT 1',
         number
     )
 
     if not rows:
-        db.execute('INSERT INTO clientes (numero,Nome,status) VALUES (?,?,?)',number,f'nome:{number}','aprovado')
-        rows = [{'numero':number,'Nome':f'nome:{number}','status':'aprovado'}]
+        db.execute('INSERT INTO clientes (numero,nome,status) VALUES (?,?,?)',number,f'nome:{number}','aprovado')
+        rows = [{'numero':number,'nome':f'nome:{number}','status':'aprovado'}]
 
     user = rows[0]
     if user.get('status') == 'bloqueado':
@@ -132,7 +132,7 @@ def guardar_login():
 
     payload = {
         "sub": str(user["numero"]),             # subject do token (id/numero)
-        "name": user["Nome"],
+        "name": user["nome"],
     }
 
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
@@ -1633,6 +1633,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
