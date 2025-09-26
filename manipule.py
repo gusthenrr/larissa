@@ -321,6 +321,9 @@ if var:
     if not os.path.exists(DATABASE_PATH):
         shutil.copy("dados.db", DATABASE_PATH)
     db = SQL("sqlite:///" + DATABASE_PATH)
+    db.execute("DROP TABLE IF EXISTS cardapio")
+    db.execute("DROP TABLE IF EXISTS estoque")
+    db.execute("DROP TABLE IF EXISTS estoque_geral")
     db.execute("CREATE TABLE IF NOT EXISTS cardapio (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT, preco REAL, categoria_id INTEGER, opcoes TEXT, instrucoes TEXT, image TEXT, preco_base REAL, usable_on_qr INTEGER DEFAULT 1,subcategoria TEXT, subsubcategoria TEXT)")
     for row in dados_cardapio:
         db.execute(
