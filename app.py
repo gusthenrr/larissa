@@ -1840,7 +1840,7 @@ def extrair_pedido_ifood(order: dict) -> dict:
         "endereco": endereco,
         "pedido_data": pedido_data,
         "pedido_hora": pedido_hora,
-        "orderTiming": order.get('orderTiming')
+        "orderTiming": order.get('orderTiming'),
         "agendamento_data": agendamento_data,
         "agendamento_hora": agendamento_hora,
     }
@@ -1852,6 +1852,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
