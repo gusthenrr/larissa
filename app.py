@@ -1691,6 +1691,7 @@ def web_hooks_notifications():
     try:
         print('ENTROUUUUUUU NO WEBHOOOOOK')
         data = request.get_json(silent=True) or {}
+        print(data)
         # Campos comuns em webhooks do iFood:
         # code: "PLACED" | "CONFIRMED" | ...
         # orderId: "xxxx"
@@ -1773,6 +1774,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
