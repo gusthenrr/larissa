@@ -1627,6 +1627,86 @@ def invocar_antendente(data):
     return {'status':'atendente_chamado'},200
 
 
+SEU_CLIENT_ID = "3d0cf767-e5ba-455a-bf5d-0dc68df20979"
+SEU_CLIENT_SECRET = "lpowfz8c26a3itgz15p6qxh840askotfsdqcrpmhcdo6h1devkkw3lk587rtyvudke18nscqnsm0t9aoptqimge0qrlrn8dka1a"
+TOKEN_URL = "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token"
+
+_token_cache = {"accessToken": None, "expiresAt": 0}
+_cache_lock = threading.Lock()
+
+def get_ifood_token():
+    with _cache_lock:
+        # reaproveita se ainda estiver válido (renova 60s antes)
+        if _token_cache["accessToken"] and _token_cache["expiresAt"] - time.time() > 60:
+            return _token_cache["accessToken"], _token_cache["expiresAt"]
+
+        data = {
+            "grantType": "client_credentials",
+            "clientId": SEU_CLIENT_ID,
+            "clientSecret": SEU_CLIENT_SECRET,
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        r = requests.post(TOKEN_URL, data=data, headers=headers, timeout=20)
+        r.raise_for_status()
+        payload = r.json()
+
+        access_token = payload.get("accessToken") or payload.get("access_token")
+        expires_in = int(payload.get("expiresIn") or payload.get("expires_in") or 0)
+
+        if not access_token:
+            raise RuntimeError(f"Resposta sem token: {payload}")
+
+        expires_at = time.time() + expires_in
+        _token_cache["accessToken"] = access_token
+        _token_cache["expiresAt"] = expires_at
+
+        return access_token
+
+def fluxo_authentication():
+    try:
+        token, exp = get_ifood_token()
+        print("Token:", token)
+        print("Expira em:", exp)
+        return {"ok": True, "accessToken": token, "expiresAt": int(exp)}
+    except Exception as e:
+        print("Erro:", str(e))
+        return {"ok": False, "error": str(e)}
+
+@app.route('webhook_ifood', methods='GET')
+def web_hooks_notifications():
+    token = get_ifood_token()
+    data = request.get_json(force=True) or {}
+    if data.get('code') == 'PLACED':
+        print("Novo pedido")
+        pedido_detalhes(data, token)
+
+def pedido_detalhes(data, access_token):
+    order_id=data.get('orderId')
+    if not access_token:
+        fluxo_authentication()
+    headers={
+    "Authorization": f"Bearer {access_token}", 
+    "Content-Type": "application/json"
+    }
+    url_orders=f'https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}'
+    response = requests.get(url_orders, headers=headers)
+    orders_dt=response.json()
+    print('detalhes do pedido: ',orders_dt)
+    items=orders_dt.get('items')
+    for item in items:
+        item_id=item.get('item-123', '')
+        name=item.get('name', '')
+        quantity=item.get('quantity',1)
+        unitPrice=item.get('unitPrice')
+        totalPrice=item.get('totalPrice')
+        options = item.get('options')
+        for o in options:
+            option_id=o.get('id')
+            option_name=o.get('name')
+            option_price=o.get('price')
+    totals=orders_dt.get('totals')
+    subTotal=totals.get('subTotal')
 
 
 
@@ -1635,6 +1715,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
