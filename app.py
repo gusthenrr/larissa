@@ -1723,7 +1723,7 @@ def pedido_detalhes(order_id: str, access_token: str):
     }
 
     # Detalhes do pedido
-    url_order = f"{ORDER_BASE_URL}/orders/{order_id}"
+    url_order = f"https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}"
     resp = requests.get(url_order, headers=headers, timeout=20)
     resp.raise_for_status()
     order = resp.json()
@@ -1774,6 +1774,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
