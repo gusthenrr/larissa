@@ -188,6 +188,8 @@ def enviar_notificacao_expo(cargo,titulo,corpo,token_user,canal="default"):
 def atualizar_faturamento_diario():
     db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ?',0,'ADM')
     db.execute('DELETE FROM tokens WHERE cargo!=?','ADM')
+    dia = datetime.now(brazil)
+    db.execute('INSERT INTO pedidos (comanda,dia, ordem) VALUES (?,?,?)','controle de estoque',dia,0)
     #end_p_dict = db.execute('SELECT itens FROM promotions WHERE dia_end = ?',datetime.now().date())
     # if end_p_dict:  
     #     for row in end_p_dict:
@@ -1633,6 +1635,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
