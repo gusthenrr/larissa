@@ -1759,6 +1759,7 @@ def extrair_pedido_ifood(order: dict) -> dict:
     total_block = order.get("total") or {}
     valor_sem_taxas = total_block.get("subTotal")
     valor_com_taxas = total_block.get("orderAmount")
+    print('Totais')
 
     # Endereço
     delivery = order.get("delivery") or {}
@@ -1773,11 +1774,12 @@ def extrair_pedido_ifood(order: dict) -> dict:
         "complemento": addr.get("complement"),
         "referencia": addr.get("reference"),
     }
+    print('endereco')
 
     # Horários
     pedido_data, pedido_hora = parse_iso_br(order.get("createdAt"))
     agendamento_data, agendamento_hora = parse_iso_br(delivery.get("deliveryDateTime"))
-
+    print('horarios')
     # Itens
     itens_extraidos = []
     for it in order.get("items", []):
@@ -1806,6 +1808,7 @@ def extrair_pedido_ifood(order: dict) -> dict:
                 })
             item_dict["complementos"].append(comp)
         itens_extraidos.append(item_dict)
+    print('itens')
 
     return {
         "pedido_id": order.get("id"),
@@ -1828,6 +1831,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
