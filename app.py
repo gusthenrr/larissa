@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 from pytz import timezone
-import os, random
+import os, random, time, requests, threading
 import pandas as pd
 from io import BytesIO
 import logging
@@ -1627,8 +1627,8 @@ def invocar_antendente(data):
     return {'status':'atendente_chamado'},200
 
 
-SEU_CLIENT_ID = "3d0cf767-e5ba-455a-bf5d-0dc68df20979"
-SEU_CLIENT_SECRET = "lpowfz8c26a3itgz15p6qxh840askotfsdqcrpmhcdo6h1devkkw3lk587rtyvudke18nscqnsm0t9aoptqimge0qrlrn8dka1a"
+SEU_CLIENT_ID = "c25a19b3-ca72-4ab3-b390-99e75a90e77d"
+SEU_CLIENT_SECRET = "a3eg0gkdgddr6rs8zvlsd2yd4bweu1rj26s8h25w9p96c051y0jcishcz9tvhr1wvves5k5i7pf1x0ojos4dbvp2khct45vf0ug"
 TOKEN_URL = "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token"
 
 _token_cache = {"accessToken": None, "expiresAt": 0}
@@ -1715,6 +1715,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
