@@ -1735,7 +1735,10 @@ def pedido_detalhes(order_id: str, access_token: str):
     order_id = data.get('pedido_id')
     produtos = data.get('produtos')
     nome_cliente = data.get('cliente_nome')
-    endereco = data.get('endereco')
+    endereco_dict = data.get('endereco')
+    endereco = endereco_dict.get('rua')
+    endereco+=f" {endereco_dict['numero']}"
+    
     orderTiming = data.get('orderTiming')
     pedido_hora = data.get('pedido_hora')
     pedido_data = data.get('pedido_data')
@@ -1852,6 +1855,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
