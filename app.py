@@ -1507,9 +1507,9 @@ def buscar_menu_data(emitir_broadcast):
             cat_id = row.get('categoria_id')
 
             # Classificação
-            if (cat_id in (1, 2)) and (item_nome not in ['amendoim', 'milho', 'Pack de seda', 'cigarro', 'bic', 'dinheiro','castanha']) and not item_nome.startswith('acai'):
+            if (cat_id in (1, 2)) and (item_nome not in ['amendoim', 'milho mostarda e mel', 'Pack de seda', 'cigarro', 'bic', 'dinheiro','castanha de caju']) and not item_nome.startswith('acai'):
                 categoria_item = 'bebida'
-            elif (cat_id == 3) or (item_nome in ['amendoim', 'milho','castanha']) or (item_nome.startswith('acai')):
+            elif (cat_id == 3) or (item_nome in ['amendoim', 'milho mostarda e mel','castanha de caju']) or (item_nome.startswith('acai')):
                 categoria_item = 'comida'
             else:
                 categoria_item = 'outros'
@@ -1635,6 +1635,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
