@@ -1750,7 +1750,7 @@ def pedido_detalhes(order_id: str, access_token: str):
         preco = row['preco_total']
         extra = row.get('observacoes','')
         extra+='\n'
-        for i in row.get('complementos')
+        for i in row.get('complementos'):
             extra+=f"{i['quantidade']} {i['nome']},"
         db.execute('INSERT INTO pedidos (pedido,quantidade,preco,categoria,inicio,estado,extra,nome,dia,orderTiming,endereco_entrega,order_id,remetente,horario_para_entrega) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
                   pedido,quantidade,preco,3,pedido_hora,'A Fazer',extra,nome_cliente,pedido_data,orderTiming,endereco,order_id,'IFOOD',pedido_hora)
@@ -1852,6 +1852,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
