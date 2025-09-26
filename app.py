@@ -1695,13 +1695,13 @@ def web_hooks_notifications():
         # Campos comuns em webhooks do iFood:
         # code: "PLACED" | "CONFIRMED" | ...
         # orderId: "xxxx"
-        event_code = data.get("code") or data.get("event") or data.get("eventType")
-        order_id = data.get("orderId") or data.get("id")
-
+        event_code = data.get("fullCode") or data.get("event") or data.get("eventType")
+        
         # Garante token válido
         access_token, _ = get_ifood_token()
 
-        if event_code == "PLACED" and order_id:
+        if event_code == "PLACED":
+            order_id = data.get("orderId") or data.get("id")
             # Aqui você pode enfileirar para um worker; mantive direto para ficar pronto pra uso.
             pedido_detalhes(order_id, access_token)
 
@@ -1774,6 +1774,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
