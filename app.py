@@ -26,7 +26,6 @@ import jwt
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = True
 if manipule:
     subprocess.run(['python','manipule.py'])
 
@@ -1633,6 +1632,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
