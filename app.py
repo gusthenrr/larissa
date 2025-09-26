@@ -1487,10 +1487,10 @@ def buscar_menu_data(emitir_broadcast):
 
         data_geral = db.execute(
             '''
-            SELECT id, item, preco, categoria_id, image, options_on_qr, name_on_qr, subcategoria
+            SELECT id, item, preco, categoria_id, image, opcoes, subcategoria
             FROM cardapio
             WHERE usable_on_qr = ?
-            ORDER BY name_on_qr ASC
+            ORDER BY item ASC
             ''',
             1
         )
@@ -1498,7 +1498,7 @@ def buscar_menu_data(emitir_broadcast):
 
         data_geral_atualizado = []
         for row in data_geral:
-            item_nome = (row.get('name_on_qr') or '').strip()
+            item_nome = (row.get('item') or '').strip()
             if not item_nome:
                 continue
 
@@ -1513,7 +1513,7 @@ def buscar_menu_data(emitir_broadcast):
                 categoria_item = 'outros'
 
             # --- Coalesce seguro para options_on_qr ---
-            opcoes_str = row.get('options_on_qr')
+            opcoes_str = row.get('opcoes')
             if opcoes_str is None:
                 opcoes_str = ''
             elif not isinstance(opcoes_str, str):
@@ -1633,6 +1633,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
