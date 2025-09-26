@@ -24,6 +24,7 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 import jwt
 
+
 from werkzeug.utils import secure_filename
 var = True
 manipule = False
@@ -1728,44 +1729,97 @@ def pedido_detalhes(order_id: str, access_token: str):
     resp.raise_for_status()
     order = resp.json()
     print("[iFood] detalhes do pedido:", order)
-
-    # --- Parse defensivo (ajuste ao seu schema/DB) ---
-    customer = order.get("customer") or {}
-    customer_name = customer.get("name")
-    customer_phone = customer.get("phone")
-
-    items = order.get("items") or []
-    parsed_items = []
-    for it in items:
-        parsed_items.append({
-            "item_id": it.get("id"),
-            "name": it.get("name"),
-            "quantity": it.get("quantity", 1),
-            "unit_price": it.get("unitPrice"),
-            "total_price": it.get("totalPrice"),
-            "options": [
-                {
-                    "option_id": opt.get("id"),
-                    "option_name": opt.get("name"),
-                    "option_price": opt.get("price"),
-                }
-                for opt in (it.get("options") or [])
-            ]
-        })
-
-    totals = order.get("totals") or {}
-    sub_total = totals.get("subTotal")
-    delivery_fee = totals.get("deliveryFee")
-    order_total = totals.get("orderAmount") or totals.get("total")
-
-    # Exemplo: imprima um resumo (troque aqui pelo INSERT no seu DB)
-    print("[iFood] resumo:",
-          dict(order_id=order_id, customer_name=customer_name, customer_phone=customer_phone,
-               sub_total=sub_total, delivery_fee=delivery_fee, order_total=order_total,
-               items_count=len(parsed_items)))
-
-    # TODO: salve em seu banco (PostgreSQL/SQLite). Exemplo:
+    print('/n'*8)
+    resp = extrair_pedido_ifood(order)
+    print(f'Resposta:\n{resp}')
+    
     # save_order_to_db(order_id, customer_name, customer_phone, parsed_items, sub_total, delivery_fee, order_total)
+def parse_iso_br(dt_str: str | None) -> tuple[str | None, str | None]:
+    """Converte datetime ISO do iFood para data e hora separadas (em São Paulo)."""
+    if not dt_str:
+        return None, None
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone(brazil)
+        return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
+    except Exception:
+        return None, None
+
+def extrair_pedido_ifood(order: dict) -> dict:
+    """
+    Retorna informações essenciais do pedido iFood:
+    - nome do produto
+    - complementos / especificações / observações
+    - total com taxas (orderAmount)
+    - valor sem taxas (subTotal)
+    - endereço formatado
+    - horário do pedido (data/hora)
+    - se agendado, horário do agendamento (data/hora)
+    """
+    # Totais
+    total_block = order.get("total") or {}
+    valor_sem_taxas = total_block.get("subTotal")
+    valor_com_taxas = total_block.get("orderAmount")
+
+    # Endereço
+    delivery = order.get("delivery") or {}
+    addr = delivery.get("deliveryAddress") or {}
+    endereco = {
+        "rua": addr.get("streetName"),
+        "numero": addr.get("streetNumber"),
+        "bairro": addr.get("neighborhood"),
+        "cidade": addr.get("city"),
+        "estado": addr.get("state"),
+        "cep": addr.get("postalCode"),
+        "complemento": addr.get("complement"),
+        "referencia": addr.get("reference"),
+    }
+
+    # Horários
+    pedido_data, pedido_hora = parse_iso_br(order.get("createdAt"))
+    agendamento_data, agendamento_hora = parse_iso_br(delivery.get("deliveryDateTime"))
+
+    # Itens
+    itens_extraidos = []
+    for it in order.get("items", []):
+        item_dict = {
+            "produto": it.get("name"),
+            "quantidade": it.get("quantity", 1),
+            "preco_unit": it.get("unitPrice"),
+            "preco_total": it.get("totalPrice"),
+            "observacoes": it.get("observations"),
+            "complementos": []
+        }
+        for opt in it.get("options", []):
+            comp = {
+                "nome": opt.get("name"),
+                "grupo": opt.get("groupName"),
+                "quantidade": opt.get("quantity", 1),
+                "preco": opt.get("price"),
+                "customizacoes": []
+            }
+            for cust in opt.get("customizations", []):
+                comp["customizacoes"].append({
+                    "nome": cust.get("name"),
+                    "grupo": cust.get("groupName"),
+                    "quantidade": cust.get("quantity", 1),
+                    "preco": cust.get("price"),
+                })
+            item_dict["complementos"].append(comp)
+        itens_extraidos.append(item_dict)
+
+    return {
+        "pedido_id": order.get("id"),
+        "display_id": order.get("displayId"),
+        "cliente_nome": (order.get("customer") or {}).get("name"),
+        "produtos": itens_extraidos,
+        "valor_sem_taxas": valor_sem_taxas,
+        "valor_com_taxas": valor_com_taxas,
+        "endereco": endereco,
+        "pedido_data": pedido_data,
+        "pedido_hora": pedido_hora,
+        "agendamento_data": agendamento_data,
+        "agendamento_hora": agendamento_hora,
+    }
 
 
 
@@ -1774,6 +1828,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
