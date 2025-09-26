@@ -1631,14 +1631,21 @@ SEU_CLIENT_ID = "c25a19b3-ca72-4ab3-b390-99e75a90e77d"
 SEU_CLIENT_SECRET = "a3eg0gkdgddr6rs8zvlsd2yd4bweu1rj26s8h25w9p96c051y0jcishcz9tvhr1wvves5k5i7pf1x0ojos4dbvp2khct45vf0ug"
 TOKEN_URL = "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token"
 
-_token_cache = {"accessToken": None, "expiresAt": 0}
+_token_cache = {"accessToken": None, "expiresAt": 0.0}
 _cache_lock = threading.Lock()
 
 def get_ifood_token():
+    """
+    Sempre retorna (access_token: str, expires_at: float).
+    Renova 60s antes de expirar.
+    """
     with _cache_lock:
-        # reaproveita se ainda estiver válido (renova 60s antes)
-        if _token_cache["accessToken"] and _token_cache["expiresAt"] - time.time() > 60:
+        now = time.time()
+        if _token_cache["accessToken"] and (_token_cache["expiresAt"] - now > 60):
             return _token_cache["accessToken"], _token_cache["expiresAt"]
+
+        if not SEU_CLIENT_ID or not SEU_CLIENT_SECRET:
+            raise RuntimeError("IFOOD_CLIENT_ID/IFOOD_CLIENT_SECRET não configurados nas variáveis de ambiente.")
 
         data = {
             "grantType": "client_credentials",
@@ -1646,67 +1653,118 @@ def get_ifood_token():
             "clientSecret": SEU_CLIENT_SECRET,
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
         r = requests.post(TOKEN_URL, data=data, headers=headers, timeout=20)
         r.raise_for_status()
         payload = r.json()
 
         access_token = payload.get("accessToken") or payload.get("access_token")
         expires_in = int(payload.get("expiresIn") or payload.get("expires_in") or 0)
+        if not access_token or not expires_in:
+            raise RuntimeError(f"Resposta de token inesperada: {payload}")
 
-        if not access_token:
-            raise RuntimeError(f"Resposta sem token: {payload}")
-
-        expires_at = time.time() + expires_in
+        expires_at = now + expires_in
         _token_cache["accessToken"] = access_token
         _token_cache["expiresAt"] = expires_at
-
-        return access_token
+        return access_token, expires_at
 
 def fluxo_authentication():
     try:
         token, exp = get_ifood_token()
-        print("Token:", token)
-        print("Expira em:", exp)
         return {"ok": True, "accessToken": token, "expiresAt": int(exp)}
     except Exception as e:
-        print("Erro:", str(e))
         return {"ok": False, "error": str(e)}
+
+@app.route("/ifood/token", methods=["GET"])
+def ifood_token_health():
+    """Rota utilitária pra testar autenticação rapidamente."""
+    res = fluxo_authentication()
+    status = 200 if res.get("ok") else 500
+    return jsonify(res), status
 
 @app.route('/webhook_ifood', methods=['POST'])
 def web_hooks_notifications():
-    token = get_ifood_token()
-    data = request.get_json(force=True) or {}
-    if data.get('code') == 'PLACED':
-        print("Novo pedido")
-        pedido_detalhes(data, token)
+    """
+    Webhook do iFood:
+    - SEMPRE retornar rapidamente 204 (ou 200) pra evitar reentregas infinitas.
+    - Processamento pode ser assíncrono; aqui está direto pra simplificar.
+    """
+    try:
+        print('ENTROUUUUUUU NO WEBHOOOOOK')
+        data = request.get_json(silent=True) or {}
+        # Campos comuns em webhooks do iFood:
+        # code: "PLACED" | "CONFIRMED" | ...
+        # orderId: "xxxx"
+        event_code = data.get("code") or data.get("event") or data.get("eventType")
+        order_id = data.get("orderId") or data.get("id")
 
-def pedido_detalhes(data, access_token):
-    order_id=data.get('orderId')
+        # Garante token válido
+        access_token, _ = get_ifood_token()
+
+        if event_code == "PLACED" and order_id:
+            # Aqui você pode enfileirar para um worker; mantive direto para ficar pronto pra uso.
+            pedido_detalhes(order_id, access_token)
+
+        # Responde rápido SEMPRE
+        return ("", 204)
+    except Exception as e:
+        print(f"[webhook_ifood] erro: {e}")
+        # Mesmo com erro, devolva 204 pra não gerar loop de reentrega
+        return ("", 204)
+
+def pedido_detalhes(order_id: str, access_token: str):
+    """Busca detalhes do pedido no endpoint do iFood e faz o parse básico."""
     if not access_token:
-        fluxo_authentication()
-    headers={
-    "Authorization": f"Bearer {access_token}", 
-    "Content-Type": "application/json"
+        access_token, _ = get_ifood_token()
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
     }
-    url_orders=f'https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}'
-    response = requests.get(url_orders, headers=headers)
-    orders_dt=response.json()
-    print('detalhes do pedido: ',orders_dt)
-    items=orders_dt.get('items')
-    for item in items:
-        item_id=item.get('item-123', '')
-        name=item.get('name', '')
-        quantity=item.get('quantity',1)
-        unitPrice=item.get('unitPrice')
-        totalPrice=item.get('totalPrice')
-        options = item.get('options')
-        for o in options:
-            option_id=o.get('id')
-            option_name=o.get('name')
-            option_price=o.get('price')
-    totals=orders_dt.get('totals')
-    subTotal=totals.get('subTotal')
+
+    # Detalhes do pedido
+    url_order = f"{ORDER_BASE_URL}/orders/{order_id}"
+    resp = requests.get(url_order, headers=headers, timeout=20)
+    resp.raise_for_status()
+    order = resp.json()
+    print("[iFood] detalhes do pedido:", order)
+
+    # --- Parse defensivo (ajuste ao seu schema/DB) ---
+    customer = order.get("customer") or {}
+    customer_name = customer.get("name")
+    customer_phone = customer.get("phone")
+
+    items = order.get("items") or []
+    parsed_items = []
+    for it in items:
+        parsed_items.append({
+            "item_id": it.get("id"),
+            "name": it.get("name"),
+            "quantity": it.get("quantity", 1),
+            "unit_price": it.get("unitPrice"),
+            "total_price": it.get("totalPrice"),
+            "options": [
+                {
+                    "option_id": opt.get("id"),
+                    "option_name": opt.get("name"),
+                    "option_price": opt.get("price"),
+                }
+                for opt in (it.get("options") or [])
+            ]
+        })
+
+    totals = order.get("totals") or {}
+    sub_total = totals.get("subTotal")
+    delivery_fee = totals.get("deliveryFee")
+    order_total = totals.get("orderAmount") or totals.get("total")
+
+    # Exemplo: imprima um resumo (troque aqui pelo INSERT no seu DB)
+    print("[iFood] resumo:",
+          dict(order_id=order_id, customer_name=customer_name, customer_phone=customer_phone,
+               sub_total=sub_total, delivery_fee=delivery_fee, order_total=order_total,
+               items_count=len(parsed_items)))
+
+    # TODO: salve em seu banco (PostgreSQL/SQLite). Exemplo:
+    # save_order_to_db(order_id, customer_name, customer_phone, parsed_items, sub_total, delivery_fee, order_total)
 
 
 
@@ -1715,6 +1773,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
