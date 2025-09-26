@@ -1673,7 +1673,7 @@ def fluxo_authentication():
         print("Erro:", str(e))
         return {"ok": False, "error": str(e)}
 
-@app.route('webhook_ifood', methods=['POST'])
+@app.route('/webhook_ifood', methods=['POST'])
 def web_hooks_notifications():
     token = get_ifood_token()
     data = request.get_json(force=True) or {}
@@ -1715,6 +1715,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
