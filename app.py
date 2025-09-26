@@ -1730,8 +1730,30 @@ def pedido_detalhes(order_id: str, access_token: str):
     order = resp.json()
     print("[iFood] detalhes do pedido:", order)
     print('/n'*8)
-    resp = extrair_pedido_ifood(order)
+    data = extrair_pedido_ifood(order)
     print(f'Resposta:\n{resp}')
+    order_id = data.get('pedido_id')
+    produtos = data.get('produtos')
+    nome_cliente = data.get('cliente_nome')
+    endereco = data.get('endereco')
+    orderTiming = data.get('orderTiming')
+    pedido_hora = data.get('pedido_hora')
+    pedido_data = data.get('pedido_data')
+    agendamento_hora = None
+    if orderTiming == 'SCHEDULED':
+        pedido_data = data.get('agendamento_data')
+        agendamento_hora = data.get('agendamento_hora')
+    
+    for row in produtos:
+        pedido = row['produto']
+        quantidade = row['quantidade']
+        preco = row['preco_total']
+        extra = row.get('observacoes','')
+        extra+='\n'
+        for i in row.get('complementos')
+            extra+=f"{i['quantidade']} {i['nome']},"
+        db.execute('INSERT INTO pedidos (pedido,quantidade,preco,categoria,inicio,estado,extra,nome,dia,orderTiming,endereco_entrega,order_id,remetente,horario_para_entrega) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                  pedido,quantidade,preco,3,pedido_hora,'A Fazer',extra,nome_cliente,pedido_data,orderTiming,endereco,order_id,'IFOOD',pedido_hora)
     
     # save_order_to_db(order_id, customer_name, customer_phone, parsed_items, sub_total, delivery_fee, order_total)
 def parse_iso_br(dt_str: str | None) -> tuple[str | None, str | None]:
@@ -1812,14 +1834,13 @@ def extrair_pedido_ifood(order: dict) -> dict:
 
     return {
         "pedido_id": order.get("id"),
-        "display_id": order.get("displayId"),
         "cliente_nome": (order.get("customer") or {}).get("name"),
         "produtos": itens_extraidos,
         "valor_sem_taxas": valor_sem_taxas,
-        "valor_com_taxas": valor_com_taxas,
         "endereco": endereco,
         "pedido_data": pedido_data,
         "pedido_hora": pedido_hora,
+        "orderTiming": order.get('orderTiming')
         "agendamento_data": agendamento_data,
         "agendamento_hora": agendamento_hora,
     }
@@ -1831,6 +1852,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
