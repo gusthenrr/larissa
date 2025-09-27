@@ -389,13 +389,13 @@ def getPedidos(emitirBroadcast):
 
 @socketio.on('getEstoque')
 def getEstoque(emitirBroadcast):
-    dataEstoque=db.execute('SELECT * FROM estoque')
+    dataEstoque=db.execute('SELECT * FROM estoque ORDER BY item')
     if dataEstoque:
         emit('respostaEstoque',{'dataEstoque':dataEstoque},broadcast=emitirBroadcast)
 
 @socketio.on('getEstoqueGeral')
 def getEstoqueGeral(emitirBroadcast):
-    dataEstoqueGeral=db.execute('SELECT * FROM estoque_geral')
+    dataEstoqueGeral=db.execute('SELECT * FROM estoque_geral ORDER BY item')
     if dataEstoqueGeral:
         emit('respostaEstoqueGeral',{'dataEstoqueGeral':dataEstoqueGeral},broadcast=emitirBroadcast)
 
@@ -1855,6 +1855,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
