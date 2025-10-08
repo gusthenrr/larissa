@@ -1757,6 +1757,7 @@ def pedido_detalhes(order_id: str, access_token: str):
             extra+=f"{i['quantidade']} {i['nome']},"
         db.execute('INSERT INTO pedidos (pedido,quantidade,preco,categoria,inicio,estado,extra,nome,dia,orderTiming,endereco_entrega,order_id,remetente,horario_para_entrega) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                   pedido,quantidade,preco,3,pedido_hora,'A Fazer',extra,nome_cliente,pedido_data,orderTiming,endereco,order_id,'IFOOD',pedido_hora)
+        confirmarPedidoIfood(order_id)
     
     # save_order_to_db(order_id, customer_name, customer_phone, parsed_items, sub_total, delivery_fee, order_total)
 def parse_iso_br(dt_str: str | None) -> tuple[str | None, str | None]:
@@ -1848,10 +1849,10 @@ def extrair_pedido_ifood(order: dict) -> dict:
         "agendamento_hora": agendamento_hora,
     }
 
-@app.route('/confirmarPedidoIfood', methods=['POST'])
-def confirmarPedidoIfood():
-    data = request.get_json()
-    order_id = data.get('id', None)
+#@app.route('/confirmarPedidoIfood', methods=['POST'])
+def confirmarPedidoIfood(order_id):
+    #data = request.get_json()
+    #order_id = data.get('id', None)
 
     if not order_id:
         return jsonify({'error': 'ID do pedido não fornecido'}), 400
@@ -1882,6 +1883,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
