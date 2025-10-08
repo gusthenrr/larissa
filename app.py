@@ -1865,7 +1865,9 @@ def confirmarPedidoIfood(order_id: str):
             "Authorization": f"Bearer {api_token}",
             "Accept": "application/json",
         }
-        return requests.get(url, headers=headers, timeout=20)
+        resp = requests.get(url, headers=headers, timeout=20)
+        print(resp.json())
+        return resp
 
     try:
         # 1) token do cache (ou renovado, via get_ifood_token)
@@ -1887,11 +1889,10 @@ def confirmarPedidoIfood(order_id: str):
         except ValueError:
             data = {"raw": resp.text}
 
-        return {
-            "ok": resp.ok,
-            "status_code": resp.status_code,
-            "data": data,
-        }
+        print("ok",resp.ok)
+        print("status_code",resp.status_code)
+        print("data", data)
+        
     except requests.RequestException as e:
         return {"ok": False, "error": f"HTTP error: {e}", "status_code": getattr(e.response, "status_code", None)}
     except Exception as e:
@@ -1904,6 +1905,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
