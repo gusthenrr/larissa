@@ -1850,32 +1850,53 @@ def extrair_pedido_ifood(order: dict) -> dict:
     }
 
 #@app.route('/confirmarPedidoIfood', methods=['POST'])
-def confirmarPedidoIfood(order_id):
-    #data = request.get_json()
-    #order_id = data.get('id', None)
-
+def confirmarPedidoIfood(order_id: str):
+    """
+    Busca os detalhes do pedido no iFood usando JWT Bearer.
+    Faz 1 tentativa de renovação do token caso receba 401/403.
+    Retorna um dict com ok, status_code e data (JSON ou texto bruto).
+    """
     if not order_id:
-        return jsonify({'error': 'ID do pedido não fornecido'}), 400
+        return {"ok": False, "error": "ID do pedido não fornecido", "status_code": 400}
 
-    try:
+    def _call(api_token: str):
         url = f"https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}"
         headers = {
-            "accept": "application/json"
+            "Authorization": f"Bearer {api_token}",
+            "Accept": "application/json",
         }
+        return requests.get(url, headers=headers, timeout=20)
 
-        response = requests.get(url, headers=headers, timeout=10)
+    try:
+        # 1) token do cache (ou renovado, via get_ifood_token)
+        access_token, _ = get_ifood_token()
+        resp = _call(access_token)
 
-        print("Status Code:", response.status_code)
-        print("Response JSON:", response.json())
+        # 2) se token inválido/expirado, força renovação e tenta de novo
+        if resp.status_code in (401, 403):
+            try:
+                _token_cache["accessToken"] = None  # força refresh
+                _token_cache["expiresAt"] = 0
+                access_token, _ = get_ifood_token()
+                resp = _call(access_token)
+            except Exception:
+                pass
 
-        return jsonify({
-            'status_code': response.status_code,
-            'data': response.json()
-        }), response.status_code
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {"raw": resp.text}
 
+        return {
+            "ok": resp.ok,
+            "status_code": resp.status_code,
+            "data": data,
+        }
+    except requests.RequestException as e:
+        return {"ok": False, "error": f"HTTP error: {e}", "status_code": getattr(e.response, "status_code", None)}
     except Exception as e:
-        print('Erro ao confirmar pedido:', e)
-        return jsonify({'error': str(e)}), 500
+        return {"ok": False, "error": str(e), "status_code": 500}
+
             
             
 
@@ -1883,6 +1904,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
