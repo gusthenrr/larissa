@@ -1848,24 +1848,33 @@ def extrair_pedido_ifood(order: dict) -> dict:
         "agendamento_hora": agendamento_hora,
     }
 
-@app.route('confirmarPedidoIfood', methods=['POST'])
+@app.route('/confirmarPedidoIfood', methods=['POST'])
 def confirmarPedidoIfood():
     data = request.get_json()
-    order_id = data.get('id',None)
-    if order_id:
-        try:
-            url = f"https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}"
-        
-            headers = {
-                "accept": "application/json"
-            }
-            
-            response = requests.get(url, headers=headers)
-            
-            print("Status Code:", response.status_code)
-            print("Response JSON:", response.json())
-        except Exception as e:
-            print('Erro ao confirmar pedido', e)
+    order_id = data.get('id', None)
+
+    if not order_id:
+        return jsonify({'error': 'ID do pedido não fornecido'}), 400
+
+    try:
+        url = f"https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}"
+        headers = {
+            "accept": "application/json"
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+
+        print("Status Code:", response.status_code)
+        print("Response JSON:", response.json())
+
+        return jsonify({
+            'status_code': response.status_code,
+            'data': response.json()
+        }), response.status_code
+
+    except Exception as e:
+        print('Erro ao confirmar pedido:', e)
+        return jsonify({'error': str(e)}), 500
             
             
 
@@ -1873,6 +1882,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
