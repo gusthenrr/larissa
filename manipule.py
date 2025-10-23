@@ -1,67 +1,83 @@
-# scripts/migrar_opcoes.py
-from cs50 import SQL
-import os, re, json, unicodedata, datetime
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+manipule.py
+Executa a migração das opções do cardápio imediatamente (sem CLI e sem if __main__).
+- Converte formato legado:  Tamanho(300g-500g+18-1kg+65)Adicionais(cheddar e bacon+20-cebola empanada+17)
+- Para formato JSON canônico:
+  [
+    {"nome":"Adicionais","ids":"","options":[{"nome":"cebola empanada","valor_extra":15.0,"esgotado":0}, ...],
+     "max_selected":1,"obrigatorio":1},
+    {"nome":"Tamanho","ids":"","options":[{"nome":"1kg","valor_extra":65.0,"esgotado":0}, ...],
+     "max_selected":1,"obrigatorio":1}
+  ]
+"""
+
+import os
+import re
+import json
+import sqlite3
+import sys
+import unicodedata
+import datetime as _dt
+import ast
+from typing import Any, Dict, List, Tuple
 
 # ========================= CONFIG =========================
+DB_PATH = "/data/dados.db"   # caminho fixo solicitado
 
-DRY_RUN = False  # True = só mostra o que faria; False = aplica no banco
+# Ordem preferida dos grupos no JSON final (deixe [] para manter a ordem original)
+PREFERRED_GROUP_ORDER = ["Adicionais", "Tamanho"]
 
-# Se quiser forçar algum "esgotado" por regra, mapeie aqui (opcional):
-# chave: (grupo_slug, opcao_slug) -> esgotado (0/1)
-ESGOTADO_OVERRIDES = {
-    # ("tamanho", "1kg"): 1,   # exemplo: marca 1kg como esgotado
-}
-
-
-# obrigatorio e max_selected padrão por grupo
+# Defaults por grupo:
 DEFAULT_OBRIGATORIO = 1
 DEFAULT_MAX_SELECTED = 1
+DEFAULT_IDS = ""
+
+# Overrides opcionais: { (grupo_slug, opcao_slug): esgotado(0/1) }
+ESGOTADO_OVERRIDES: Dict[Tuple[str, str], int] = {
+    # ("tamanho","1kg"): 1,
+}
 
 # ========================= UTILS =========================
-def now_iso():
-    return datetime.datetime.now().replace(microsecond=0).isoformat()
+def now_iso() -> str:
+    return _dt.datetime.now().replace(microsecond=0).isoformat()
 
-def to_float(s, default=0.0):
-    if s is None:
-        return float(default)
-    try:
-        s = str(s).strip().replace(",", ".")
-        return float(s)
-    except Exception:
-        return float(default)
-
-def slugify(text):
+def slugify(text: str) -> str:
     s = str(text or "").strip().lower()
-    # remove acentos
     s = unicodedata.normalize("NFD", s)
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    # troca qualquer coisa não alfanumérica por "-"
     s = re.sub(r"[^a-z0-9]+", "-", s)
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s
 
-def is_jsonish(text):
+def to_float(s: Any, default: float = 0.0) -> float:
+    try:
+        return float(str(s).strip().replace(",", "."))
+    except Exception:
+        return float(default)
+
+def is_jsonish(text: Any) -> bool:
     if text is None:
         return False
     s = str(text).strip()
     return s.startswith("[") or s.startswith("{")
 
-# ========================= PARSER LEGADO =========================
+# ========================= PARSE LEGADO =========================
+# Ex.: "NomeGrupo(op1-op2+19.9-op3)OutroGrupo(x+y+1-z)"
 GROUP_RE = re.compile(r"([^(]+)\(([^)]*)\)")
 
-def parse_legacy_group_block(text):
+def parse_legacy(text: str) -> List[Dict[str, Any]]:
     """
-    Recebe string no formato legado e retorna lista de grupos:
-    [
-      { "nome": "...", "ids": "", "options": [ {nome, valor_extra, esgotado}, ...], "max_selected": 1, "obrigatorio": 1 },
-      ...
-    ]
+    Converte string legado em lista de grupos canônicos.
+    Cada bloco é "Nome(...)" e dentro de (...) temos tokens separados por '-'.
+    Token pode ser "nome" ou "nome+valor".
     """
-    result = []
+    groups: List[Dict[str, Any]] = []
     if not text:
-        return result
+        return groups
 
-    # encontra todos os blocos Nome( ... ) em sequência
     for m in GROUP_RE.finditer(str(text)):
         group_name = (m.group(1) or "").strip()
         inside = (m.group(2) or "").strip()
@@ -70,43 +86,42 @@ def parse_legacy_group_block(text):
 
         options = []
         if inside:
-            # divide por "-" (cada token é uma opção)
             tokens = [t for t in inside.split("-") if t.strip()]
             for tok in tokens:
-                # padrão: "nome" ou "nome+valor"
                 m2 = re.match(r"^\s*([^\+]+?)(?:\+([0-9]+(?:[.,][0-9]+)?))?\s*$", tok)
                 if not m2:
                     continue
-                name = (m2.group(1) or "").strip()
-                val = to_float(m2.group(2) or 0, 0.0)
-                opt_slug = slugify(name)
+                name = re.sub(r"\s+", " ", (m2.group(1) or "").strip())
+                val = to_float(m2.group(2) or 0.0, 0.0)
+
                 grp_slug = slugify(group_name)
-                # aplica override opcional de esgotado
-                esgotado = ESGOTADO_OVERRIDES.get((grp_slug, opt_slug), 0)
+                opt_slug = slugify(name)
+                esg = ESGOTADO_OVERRIDES.get((grp_slug, opt_slug), 0)
+
                 options.append({
                     "nome": name,
-                    "valor_extra": val,
-                    "esgotado": int(esgotado),
+                    "valor_extra": float(val),
+                    "esgotado": int(esg),
                 })
 
-        result.append({
+        groups.append({
             "nome": group_name,
-            "ids": "",
+            "ids": DEFAULT_IDS,
             "options": options,
             "max_selected": DEFAULT_MAX_SELECTED,
             "obrigatorio": DEFAULT_OBRIGATORIO,
         })
-    return result
 
-def canonicalize_json_groups(obj):
+    if PREFERRED_GROUP_ORDER:
+        index = {n: i for i, n in enumerate(PREFERRED_GROUP_ORDER)}
+        groups.sort(key=lambda g: index.get(g["nome"], 10_000))
+    return groups
+
+def canonicalize_from_json(obj: Any) -> List[Dict[str, Any]]:
     """
-    Recebe um obj (list/dict) vindo de JSON e devolve no formato canônico:
-    [
-      { nome, ids:"", options:[{nome,valor_extra,esgotado:int}], max_selected:int, obrigatorio:int },
-      ...
-    ]
+    Normaliza um objeto já-JSON (dict/list) para a forma canônica.
     """
-    groups = []
+    groups: List[Dict[str, Any]] = []
     if isinstance(obj, dict):
         obj = [obj]
     if not isinstance(obj, list):
@@ -116,15 +131,17 @@ def canonicalize_json_groups(obj):
         if not isinstance(g, dict):
             continue
         nome = str(g.get("nome") or g.get("Nome") or "Opções").strip()
-        ids = str(g.get("ids") or "").strip()
-        obrig = g.get("obrigatorio", DEFAULT_OBRIGATORIO)
+        ids = str(g.get("ids") or DEFAULT_IDS).strip()
+
+        obrig_raw = g.get("obrigatorio", DEFAULT_OBRIGATORIO)
         try:
-            obrig = 1 if str(obrig).strip().lower() in ("1", "true", "sim", "yes", "y") else 0
+            obrig = 1 if str(obrig_raw).strip().lower() in ("1", "true", "sim", "yes", "y") else 0
         except Exception:
             obrig = DEFAULT_OBRIGATORIO
-        max_sel = g.get("max_selected", DEFAULT_MAX_SELECTED)
+
+        max_sel_raw = g.get("max_selected", DEFAULT_MAX_SELECTED)
         try:
-            max_sel = int(max_sel) if int(max_sel) > 0 else DEFAULT_MAX_SELECTED
+            max_sel = int(max_sel_raw) if int(max_sel_raw) > 0 else DEFAULT_MAX_SELECTED
         except Exception:
             max_sel = DEFAULT_MAX_SELECTED
 
@@ -135,12 +152,11 @@ def canonicalize_json_groups(obj):
         options = []
         for o in raw_opts:
             if isinstance(o, str):
-                name = o.strip()
+                name = re.sub(r"\s+", " ", o.strip())
                 val = 0.0
-                # string simples, sem esgotado no legado
                 esg = 0
             elif isinstance(o, dict):
-                name = str(o.get("nome") or "").strip()
+                name = re.sub(r"\s+", " ", str(o.get("nome") or "").strip())
                 val = to_float(o.get("valor_extra") or 0.0, 0.0)
                 esg_raw = o.get("esgotado", 0)
                 try:
@@ -152,8 +168,8 @@ def canonicalize_json_groups(obj):
 
             grp_slug = slugify(nome)
             opt_slug = slugify(name)
-            # override opcional:
             esg = ESGOTADO_OVERRIDES.get((grp_slug, opt_slug), esg)
+
             options.append({
                 "nome": name,
                 "valor_extra": float(val),
@@ -167,11 +183,27 @@ def canonicalize_json_groups(obj):
             "max_selected": int(max_sel),
             "obrigatorio": int(obrig),
         })
+
+    if PREFERRED_GROUP_ORDER:
+        index = {n: i for i, n in enumerate(PREFERRED_GROUP_ORDER)}
+        groups.sort(key=lambda g: index.get(g["nome"], 10_000))
     return groups
 
 # ========================= DB HELPERS =========================
-def ensure_opcoes_table(db: SQL):
-    db.execute("""
+def connect_db(path: str) -> sqlite3.Connection:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Banco não encontrado em: {path}")
+    con = sqlite3.connect(path)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON;")
+    return con
+
+def table_exists(con: sqlite3.Connection, name: str) -> bool:
+    cur = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", (name,))
+    return cur.fetchone() is not None
+
+def ensure_opcoes_table(con: sqlite3.Connection):
+    con.execute("""
         CREATE TABLE IF NOT EXISTS opcoes(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           id_cardapio INTEGER,
@@ -186,116 +218,119 @@ def ensure_opcoes_table(db: SQL):
         )
     """)
 
-def upsert_row_opcoes(db: SQL, row):
-    """
-    Insere linha na tabela opcoes. Se quiser evitar duplicatas,
-    pode fazer DELETE ON CONFLICT com UNIQUE, mas como a tabela
-    está vazia, só insert simples já resolve.
-    """
-    db.execute(
+def clear_opcoes_for_cardapio(con: sqlite3.Connection, cid: int):
+    con.execute("DELETE FROM opcoes WHERE id_cardapio = ?;", (cid,))
+
+def insert_opcao(con: sqlite3.Connection, row: Dict[str, Any]):
+    con.execute(
         """INSERT INTO opcoes
            (id_cardapio, item, nome_grupo, opcao, valor_extra, esgotado_bool, grupo_slug, opcao_slug, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        row["id_cardapio"], row["item"], row["nome_grupo"], row["opcao"],
-        row["valor_extra"], row["esgotado_bool"], row["grupo_slug"], row["opcao_slug"], row["updated_at"]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+        (
+            row["id_cardapio"], row["item"], row["nome_grupo"], row["opcao"],
+            row["valor_extra"], row["esgotado_bool"], row["grupo_slug"], row["opcao_slug"], row["updated_at"]
+        )
     )
 
-def clear_opcoes_for_cardapio(db: SQL, id_cardapio: int):
-    db.execute("DELETE FROM opcoes WHERE id_cardapio = ?", id_cardapio)
+def backup_cardapio(con: sqlite3.Connection) -> str:
+    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"cardapio_backup_{ts}"
+    con.execute(f"CREATE TABLE {name} AS SELECT * FROM cardapio;")
+    return name
 
-# ========================= MAIN =========================
-def main():
-    var = True
-    if var:
-        DATABASE_PATH = "/data/dados.db"
-        db = SQL("sqlite:///" + DATABASE_PATH)
-        
-    else:
-        db = SQL('sqlite:///data/dados.db')
-    ensure_opcoes_table(db)
+# ========================= MIGRAÇÃO =========================
+def migrate_apply() -> None:
+    con = connect_db(DB_PATH)
+    try:
+        if not table_exists(con, "cardapio"):
+            raise RuntimeError("Tabela 'cardapio' não existe no banco.")
 
-    # pega colunas relevantes
-    rows = db.execute("SELECT id, item, opcoes FROM cardapio")
-    total = len(rows)
-    updated_cardapio = 0
-    inserted_opcoes = 0
-    skipped = 0
+        backup_name = backup_cardapio(con)
+        print(f"[backup] Tabela clonada para '{backup_name}'")
 
-    for r in rows:
-        cid = r["id"]
-        item = r.get("item") or ""
-        raw = r.get("opcoes")
+        ensure_opcoes_table(con)
 
-        # 1) Detecta e normaliza
-        groups = []
-        if raw and is_jsonish(raw):
-            try:
-                obj = json.loads(raw)
-            except Exception:
-                # às vezes vem com aspas simples
+        cur = con.execute("SELECT id, item, opcoes FROM cardapio;")
+        rows = cur.fetchall()
+
+        total = len(rows)
+        updated = 0
+        skipped = 0
+        inserted_opcoes = 0
+
+        con.execute("BEGIN;")
+
+        for r in rows:
+            cid = r["id"]
+            item = (r["item"] or "").strip()
+            raw = r["opcoes"]
+
+            # 1) Parse/normalize
+            if raw and is_jsonish(raw):
+                obj = None
                 try:
-                    obj = json.loads(str(raw).replace("'", '"'))
+                    obj = json.loads(raw)
                 except Exception:
-                    obj = []
-            groups = canonicalize_json_groups(obj)
-        else:
-            # legado "Nome(... )Nome(... )"
-            groups = parse_legacy_group_block(raw)
+                    try:
+                        obj = ast.literal_eval(raw)
+                    except Exception:
+                        obj = []
+                groups = canonicalize_from_json(obj)
+            else:
+                groups = parse_legacy(raw)
 
-        # se não achar nada, pula
-        if not groups:
-            skipped += 1
-            continue
+            if not groups:
+                skipped += 1
+                continue
 
-        # 2) monta JSON canônico (compacto e estável)
-        canon_json = json.dumps(groups, ensure_ascii=False, separators=(",", ":"))
+            # 2) JSON canônico compacto
+            canon_json = json.dumps(groups, ensure_ascii=False, separators=(",", ":"))
 
-        # 3) Atualiza cardapio.opcoes
-        if not DRY_RUN:
-            db.execute("UPDATE cardapio SET opcoes = ? WHERE id = ?", canon_json, cid)
-        updated_cardapio += 1
+            con.execute("UPDATE cardapio SET opcoes = ? WHERE id = ?;", (canon_json, cid))
+            updated += 1
 
-        # 4) (Re)popula tabela opcoes para esse item
-        if not DRY_RUN:
-            clear_opcoes_for_cardapio(db, cid)
+            # 3) (Re)popular tabela opcoes
+            clear_opcoes_for_cardapio(con, cid)
+            now = now_iso()
+            for g in groups:
+                gname = g["nome"]
+                gslug = slugify(gname)
+                for o in (g.get("options") or []):
+                    oname = o["nome"]
+                    oslug = slugify(oname)
+                    val = float(o.get("valor_extra") or 0.0)
+                    esg = int(o.get("esgotado") or 0)
+                    insert_opcao(con, {
+                        "id_cardapio": cid,
+                        "item": item,
+                        "nome_grupo": gname,
+                        "opcao": oname,
+                        "valor_extra": val,
+                        "esgotado_bool": esg,
+                        "grupo_slug": gslug,
+                        "opcao_slug": oslug,
+                        "updated_at": now
+                    })
+                    inserted_opcoes += 1
 
-        now = now_iso()
-        for g in groups:
-            nome_grupo = g["nome"]
-            grp_slug = slugify(nome_grupo)
-            for o in (g.get("options") or []):
-                opcao_nome = o["nome"]
-                opcao_slug = slugify(opcao_nome)
-                valor_extra = float(o.get("valor_extra") or 0.0)
-                esgotado = int(o.get("esgotado") or 0)
-                row_op = {
-                    "id_cardapio": cid,
-                    "item": item,
-                    "nome_grupo": nome_grupo,
-                    "opcao": opcao_nome,
-                    "valor_extra": valor_extra,
-                    "esgotado_bool": esgotado,
-                    "grupo_slug": grp_slug,
-                    "opcao_slug": opcao_slug,
-                    "updated_at": now
-                }
-                if not DRY_RUN:
-                    upsert_row_opcoes(db, row_op)
-                inserted_opcoes += 1
+        con.execute("COMMIT;")
 
-    print(f"[OK] cardapio lidos: {total}")
-    print(f"[OK] cardapio atualizados: {updated_cardapio}")
-    print(f"[OK] linhas inseridas em opcoes: {inserted_opcoes}")
-    print(f"[OK] sem mudança/pulados: {skipped}")
-    if DRY_RUN:
-        print("[DRY RUN] Nada foi gravado. Altere DRY_RUN=False para aplicar.")
+        print(f"[ok] banco: {DB_PATH}")
+        print(f"[ok] cardapio lidos: {total}")
+        print(f"[ok] cardapio atualizados: {updated}")
+        print(f"[ok] linhas inseridas em opcoes: {inserted_opcoes}")
+        print(f"[ok] registros sem mudança/pulados: {skipped}")
 
-if __name__ == "__main__":
-    main()
+    except Exception as e:
+        try:
+            con.execute("ROLLBACK;")
+        except Exception:
+            pass
+        print("[erro] migração falhou:", repr(e))
+        sys.exit(1)
+    finally:
+        con.close()
 
-
-
-
-
-
-
+# ========================= EXECUÇÃO IMEDIATA =========================
+# ATENÇÃO: sem guard; roda ao importar/rodar como subprocess.
+migrate_apply()
