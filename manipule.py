@@ -4,7 +4,7 @@ import os, re, json, unicodedata, datetime
 
 # ========================= CONFIG =========================
 
-DRY_RUN = True  # True = só mostra o que faria; False = aplica no banco
+DRY_RUN = False  # True = só mostra o que faria; False = aplica no banco
 
 # Se quiser forçar algum "esgotado" por regra, mapeie aqui (opcional):
 # chave: (grupo_slug, opcao_slug) -> esgotado (0/1)
@@ -292,6 +292,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
