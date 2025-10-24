@@ -31,7 +31,7 @@ import os, io, base64, re, unicodedata
 
 from werkzeug.utils import secure_filename
 var = True  
-manipule = True
+manipule = False
 if manipule:
     subprocess.run(['python','manipule.py'])
 
@@ -46,7 +46,7 @@ app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
-SECRET_KEY = "sua_chave_super_secreta_aqui"
+SECRET_KEY = os.getenv("MOST_SECRET_KEY")
 
 load_dotenv()
 ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO")
@@ -392,24 +392,28 @@ def verif_quantidade():
     data = request.json  # Use request.json para pegar o corpo da requisição
     item = data.get('item')
     quantidade = data.get('quantidade')
+    print(f'Item: {item}, Quantidade: {quantidade}')
 
     categoria = db.execute(
         'SELECT categoria_id FROM cardapio WHERE item = ?', item)
 
-    if categoria and categoria[0]['categoria_id'] != 2:
+    if categoria and categoria[0]['categoria_id'] == 1:
         verificar_estoque = db.execute(
             'SELECT quantidade,estoque_ideal FROM estoque WHERE item = ?', item)
 
         if verificar_estoque:
             estoque_atual = float(verificar_estoque[0]['quantidade'])
             if estoque_atual - float(quantidade) < 0:
+                print('estoque insuficiente')
                 return {'erro': 'Estoque insuficiente', 'quantidade': estoque_atual}
             elif estoque_atual:
                 estoque_ideal = verificar_estoque[0]['estoque_ideal']
                 if estoque_ideal:
                     alerta = 7 if item!='tropical' and item!='red bull' else 3
                     if estoque_atual<alerta:
+                        print('estoque baixo')
                         return {'erro': False, 'quantidade': estoque_atual}
+    print('estoque ok')
     return {'erro': False}
 
 
@@ -449,6 +453,7 @@ def transferir_comanda():
 
         # Fetch orders from the source comanda
         db.execute("UPDATE pedidos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ?", comanda_destino, comanda_origem, 0, datetime.now().date())
+        db.execute("UPDATE pagamentos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ?", comanda_destino, comanda_origem, 0, datetime.now().date())
         getPedidos(True)
         getComandas(True)
         handle_get_cardapio(comanda_destino)
@@ -1747,6 +1752,8 @@ def atualizar__comanda(data):
                         ''', comanda,dia, 'Comanda Aberta', 'Carrinho:NossoPoint')
     
     getEstoque(True)
+    getPedidos(True)
+    getComandas(True)
     handle_get_cardapio(comanda)
 
 @socketio.on('transferir_para_estoque_carrinho')
