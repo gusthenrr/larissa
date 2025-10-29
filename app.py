@@ -42,7 +42,7 @@ app = Flask(
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
 
-app.config['SECRET_KEY'] = 'seu_segredo_aqui'
+app.config['SECRET_KEY'] = os.getent("MOST_SECRET_KEY")
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
@@ -209,13 +209,16 @@ def validate_token_on_qr():
 def guardar_login():
     
     print('entrou guardar login')
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     number = str(data.get('numero'))
-    print('number',number)
+    
 
     if not number:
+        print('sem numero')
         return jsonify({"error": "Campo 'number' é obrigatório."}), 400
-
+    else:
+        print('number',number)
+    
     # Busca 1 usuário; evite depender de != 'bloqueado' no WHERE para mensagens claras
     
     payload = {
@@ -223,7 +226,7 @@ def guardar_login():
     "name": f"nome:{number}",  # nome do usuário
     "iat": int(datetime.now(brazil).timestamp()),
     }
-    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    token = jwt.encode(payload, SECRET_KEY, algorithms="HS256")
     print('token',token)
     rows = db.execute('SELECT numero, nome, status FROM clientes WHERE numero = ? LIMIT 1', number)
     print('rows')
@@ -3328,4 +3331,5 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
