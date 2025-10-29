@@ -226,7 +226,7 @@ def guardar_login():
     "name": f"nome:{number}",  # nome do usuário
     "iat": int(datetime.now(brazil).timestamp()),
     }
-    token = jwt.encode(payload, SECRET_KEY, algorithms="HS256")
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     print('token',token)
     rows = db.execute('SELECT numero, nome, status FROM clientes WHERE numero = ? LIMIT 1', number)
     print('rows')
@@ -3331,6 +3331,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
