@@ -42,7 +42,7 @@ app = Flask(
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
 
-app.config['SECRET_KEY'] = os.getent("MOST_SECRET_KEY")
+app.config['SECRET_KEY'] = os.getenv("MOST_SECRET_KEY")
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
@@ -3331,5 +3331,6 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
