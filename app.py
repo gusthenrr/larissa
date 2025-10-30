@@ -224,7 +224,7 @@ def guardar_login():
     payload = {
     "sub": f"{number}",      # identificador do usuário (pode ser id, CPF, etc.)
     "name": f"nome:{number}",  # nome do usuário
-    "iat": int(datetime.now(brazil).timestamp()),
+    "iat": int(datetime.now().timestamp()),
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     print('token',token)
@@ -3331,6 +3331,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
