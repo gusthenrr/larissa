@@ -1,22 +1,20 @@
-from flask import send_from_directory
 import sqlite3
 from contextlib import closing
 import atexit
+import time
 import unicodedata
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from cs50 import SQL
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 from pytz import timezone
-import os, random, time, requests, threading
+import os, time, requests, threading
 import pandas as pd
-from io import BytesIO
 import logging
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 import subprocess
@@ -26,18 +24,12 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 import jwt
 import json
-import os, io, base64, re, unicodedata 
+import os, re, unicodedata 
 
 
 from werkzeug.utils import secure_filename
-
-var = True
-var = True  
-manipule = True
-
-var = False  
+var = False 
 manipule = False
-
 if manipule:
     subprocess.run(['python','manipule.py'])
 
@@ -48,16 +40,18 @@ app = Flask(
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
 
-app.config['SECRET_KEY'] = 'seu_segredo_aqui'
+load_dotenv()
+app.config['SECRET_KEY'] = os.getenv("MOST_SECRET_KEY",'quero-quero17')
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
-SECRET_KEY = "sua_chave_super_secreta_aqui"
 
-load_dotenv()
-ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO")
-AUTH_TOKEN  = os.getenv("AUTH_TOKEN_TWILIO")
-VERIFY_SID  = os.getenv("VERIFY_SID") 
+SECRET_KEY = os.getenv("MOST_SECRET_KEY", 'quero-quero17')
+
+print('SECRET_KEY',SECRET_KEY)
+ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO",'ACe2b44d7bd27f18525eb33dd4ea8b891a')
+AUTH_TOKEN  = os.getenv("AUTH_TOKEN_TWILIO",'a03519e493ce0f003228acfaa3e669c2')
+VERIFY_SID  = os.getenv("VERIFY_SID",'VAda3089a24c0b290e57138ff2c44f7016') 
 
 
 
@@ -80,37 +74,50 @@ def decode_number_jwt(token: str) -> int:
 
 @app.route("/validate_table_number_on_qr", methods=['POST'])
 def validate_table_number_on_qr():
-    print('validate')
-    data = request.get_json()
-    print('data',data)
-    numero = data.get('numero')
-    print('numero',numero)
-    if not numero:
+    try:
+        print('validate')
+        data = request.get_json()
+        print('data',data)
+        numero = data.get('numero')
+        print('numero',numero)
+        if not numero:
+            return jsonify({'valid': False}), 200
+        tableNumber = decode_number_jwt(numero)
+        print('tablenumver',tableNumber)
+        if 1 <= tableNumber <= 80:
+            return jsonify({'valid': True,'tableNumber':tableNumber}), 200
         return jsonify({'valid': False}), 200
-    tableNumber = decode_number_jwt(numero)
-    print('tablenumver',tableNumber)
-    if 1 <= tableNumber <= 80:
-        return jsonify({'valid': True,'tableNumber':tableNumber}), 200
-    return jsonify({'valid': False}), 200
+    except Exception as e:
+        print('erro ao validar numero:', e)
+        return jsonify({'valid': False}), 200
 
 
 
 @app.route("/auth/sms/create", methods=["POST"])
 def send_verification():
-    print('creatingsms')
-    phone = request.json.get("phone")
-    #v = client.verify.v2.services(VERIFY_SID).verifications.create(to=phone, channel="sms")
-    #print(v)
-    return jsonify({"status": 'pending'}), 200
+    try:
+        print('creatingsms')
+        phone = request.json.get("phone")
+        print('phone',phone)
+        verification = client.verify.v2.services('VAda3089a24c0b290e57138ff2c44f7016').verifications.create(to='+5513978258866', channel='sms')
+        print(verification.sid)
+        return jsonify({"status": 'pending'}), 200
+    except Exception as e:
+        print('erro no envio:', e)
+        return jsonify({"status": 'error'}), 200
 
 @app.route("/auth/sms/check", methods=["POST"])
 def check_verification():
-    print('verification')
-    #phone = request.json.get("phone")
-    #code = request.json.get("code")
-    #chk = client.verify.v2.services(VERIFY_SID).verification_checks.create(to=phone, code=code)
-    #print(chk)
-    return jsonify({"status": 'approved'}), 200  # 'approved' se ok
+    try:
+        print('verification')
+        phone = request.json.get("phone")
+        code = request.json.get("code")
+        chk = client.verify.v2.services(VERIFY_SID).verification_checks.create(to=phone, code=code)
+        print(chk)
+        return jsonify({"status": 'approved'}), 200  # 'approved' se ok
+    except Exception as e:
+        print('erro na verificacao:', e)
+        return jsonify({"status": 'denied'}), 200
 
 @app.route('/pegar_pagamentos_comanda', methods=['POST'])
 def pegar_pagamentos_comanda():
@@ -181,53 +188,59 @@ os.makedirs(app.static_folder, exist_ok=True)
 def home():
     return "Aplicação funcionando!", 200
 
-from datetime import datetime, timedelta
-from flask import request, jsonify
+
 
 @app.route('/validate_token_on_qr', methods=['POST'])
 def validate_token_on_qr():
-    print('entrou validate token')
-    print('validate token')
-    data = request.get_json()
-    print('data',data)
-    token = data.get('token')
-    print('token',token)
-    exist = db.execute('SELECT dataUpdateToken FROM clientes WHERE token = ?', token)
-    if exist:
-        data_update = exist[0]['dataUpdateToken']
-        if isinstance(data_update, str):
-            try:
-                # tenta converter do formato padrão ISO (YYYY-MM-DD)
-                data_update_date = datetime.strptime(data_update, "%Y-%m-%d").date()
-            except ValueError:
-                # se vier num formato inesperado, tenta com hora
-                data_update_date = datetime.fromisoformat(data_update).date()
-        else:
-            data_update_date = data_update
-        print('data_update',data_update_date)
-        if data_update_date < datetime.now(brazil).date() + timedelta(days=5):
-            print('valid token')
-            return jsonify({'valid': True}), 200
-    print('invalid token or expired')
-    return jsonify({'valid': False}), 200
+    try:
+        print('entrou validate token')
+        print('validate token')
+        data = request.get_json()
+        print('data',data)
+        token = data.get('token')
+        print('token',token)
+        exist = db.execute('SELECT dataUpdateToken FROM clientes WHERE token = ?', token)
+        if exist:
+            data_update = exist[0]['dataUpdateToken']
+            if isinstance(data_update, str):
+                try:
+                    # tenta converter do formato padrão ISO (YYYY-MM-DD)
+                    data_update_date = datetime.strptime(data_update, "%Y-%m-%d").date()
+                except ValueError:
+                    # se vier num formato inesperado, tenta com hora
+                    data_update_date = datetime.fromisoformat(data_update).date()
+            else:
+                data_update_date = data_update
+            print('data_update',data_update_date)
+            if data_update_date < datetime.now(brazil).date() + timedelta(days=5):
+                print('valid token')
+                return jsonify({'valid': True}), 200
+        print('invalid token or expired')
+        return jsonify({'valid': False}), 200
+    except Exception as e:
+        print('erro ao validar token:', e)
+        return jsonify({'valid': False}), 200
 
 @app.route('/guardar_login', methods=['POST'])
 def guardar_login():
     
     print('entrou guardar login')
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     number = str(data.get('numero'))
-    print('number',number)
+    
 
     if not number:
+        print('sem numero')
         return jsonify({"error": "Campo 'number' é obrigatório."}), 400
-
+    else:
+        print('number',number)
+    
     # Busca 1 usuário; evite depender de != 'bloqueado' no WHERE para mensagens claras
     
     payload = {
     "sub": f"{number}",      # identificador do usuário (pode ser id, CPF, etc.)
     "name": f"nome:{number}",  # nome do usuário
-    "iat": int(datetime.now(brazil).timestamp()),
+    "iat": int(time.time()),  # emitido em (timestamp)
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     print('token',token)
@@ -3334,4 +3347,8 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
     socketio.run(app, host='0.0.0.0', port=port, debug=True)
+
+
+
+
 

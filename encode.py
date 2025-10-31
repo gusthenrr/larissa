@@ -1,7 +1,7 @@
 import jwt
 from datetime import datetime, timezone
 
-SECRET_KEY = "sua_chave_super_secreta_aqui"  # guarde com segurança
+SECRET_KEY = "quero-quero17"  # guarde com segurança
 
 def decode_number_jwt(token: str) -> int:
     decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
@@ -18,7 +18,7 @@ def encode_number_jwt(number: int) -> str:
     # pyjwt retorna str (ou bytes em versões antigas)
     print(token)
 
-#encode_number_jwt(5)
+encode_number_jwt(2)
 
 
-decode_number_jwt('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1IiwiaWF0IjoxNzYwMzk2NDE0fQ.D4t-lSK98nwa8bzwxisfWCaqrj1Z2BVRWwDtL8I1S2Y')
+#decode_number_jwt('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1IiwiaWF0IjoxNzYxNzgzNzcxfQ.8sAe-MQU3trjDdKVsxDgOgNfCT4AvatZTb2ZnlIKLdU')
