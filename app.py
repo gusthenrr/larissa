@@ -30,8 +30,14 @@ import os, io, base64, re, unicodedata
 
 
 from werkzeug.utils import secure_filename
+
+var = True
 var = True  
+manipule = True
+
+var = False  
 manipule = False
+
 if manipule:
     subprocess.run(['python','manipule.py'])
 
@@ -42,11 +48,11 @@ app = Flask(
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
 
-app.config['SECRET_KEY'] = os.getenv("MOST_SECRET_KEY")
+app.config['SECRET_KEY'] = 'seu_segredo_aqui'
 socketio = SocketIO(app, cors_allowed_origins="*")  
 import shutil
 
-SECRET_KEY = os.getenv("MOST_SECRET_KEY")
+SECRET_KEY = "sua_chave_super_secreta_aqui"
 
 load_dotenv()
 ACCOUNT_SID = os.getenv("ACCOUNT_SID_TWILIO")
@@ -209,22 +215,19 @@ def validate_token_on_qr():
 def guardar_login():
     
     print('entrou guardar login')
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     number = str(data.get('numero'))
-    
+    print('number',number)
 
     if not number:
-        print('sem numero')
         return jsonify({"error": "Campo 'number' é obrigatório."}), 400
-    else:
-        print('number',number)
-    
+
     # Busca 1 usuário; evite depender de != 'bloqueado' no WHERE para mensagens claras
     
     payload = {
     "sub": f"{number}",      # identificador do usuário (pode ser id, CPF, etc.)
     "name": f"nome:{number}",  # nome do usuário
-    "iat": int(datetime.now().timestamp()),
+    "iat": int(datetime.now(brazil).timestamp()),
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     print('token',token)
@@ -3330,9 +3333,5 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
 
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
-
-
-
-
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
 
