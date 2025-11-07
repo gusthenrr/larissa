@@ -4,8 +4,6 @@ import os
 from datetime import datetime
 
 # caminho do seu banco
-DB_PATH = "sqlite:///data/dados.db"
-RAW_PATH = "data/dados.db"
 var = True
 
 if var:
@@ -48,4 +46,5 @@ for tabela in tabelas_com_carrinho:
         print(f"[ERRO] {tabela}: {e}")
 
 print("[FINISH] Tudo que tinha coluna carrinho nessas tabelas foi preenchido com 'nossopoint'.")
+
 
