@@ -3,18 +3,16 @@ import shutil
 import os
 from datetime import datetime
 
-# caminho do seu banco
-DB_PATH = "sqlite:///data/dados.db"
-RAW_PATH = "data/dados.db"
+var = True
 
-# 1. backup rápido antes de mexer
-if os.path.exists(RAW_PATH):
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = f"data/dados.backup.{ts}.db"
-    shutil.copyfile(RAW_PATH, backup_path)
-    print(f"[OK] Backup criado em {backup_path}")
-
-db = SQL(DB_PATH)
+if var:
+    DATABASE_PATH = "/data/dados.db"
+    if not os.path.exists(DATABASE_PATH):
+        shutil.copy("dados.db", DATABASE_PATH)
+    db = SQL("sqlite:///" + DATABASE_PATH)
+else:
+    DATABASE_PATH = "data/dados.db"
+    db=SQL("sqlite:///" + DATABASE_PATH)
 insert_sql = """
 INSERT INTO cardapio
 (item,preco,categoria_id,opcoes,instrucoes,image,preco_base,usable_on_qr,subcategoria,subsubcategoria,carrinho)
@@ -363,4 +361,5 @@ try:
     print("[DONE] Inserção concluída.")
 except Exception as e:
     db.execute("ROLLBACK")
+
     raise
