@@ -188,8 +188,9 @@ def excluir_pedido(data):
     handle_get_cardapio(data.get('comanda'), carrinho)
 
 @socketio.on('imprimir_conta')
-def imprimir_conta(payload):
-    io.emit('imprimir_conta', payload);
+def handle_imprimir_conta(payload):
+    socketio.emit('imprimir_conta', payload)
+
     
 @app.route('/excluir_pagamento', methods=['POST'])
 def excluir_pagamento():
@@ -3739,5 +3740,6 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
