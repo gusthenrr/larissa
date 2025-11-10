@@ -2910,6 +2910,14 @@ def getPromotions(data):
     dados = db.execute('SELECT * FROM promotions WHERE carrinho = ?', carrinho)
     emit_for_carrinho('promotionsData', dados, broadcast=emitirBroadcast, carrinho=carrinho)
 
+@socketio.on('register_carrinho')
+def handle_register_carrinho(data):
+    carrinho = data.get('carrinho')
+    if not carrinho:
+        return
+    join_room(carrinho)
+    print(f"[SOCKET] Cliente entrou manualmente na room {carrinho}")
+    emit('carrinho_registrado', {'status': 'ok', 'carrinho': carrinho})
 
 @socketio.on('invocar_atendente')
 def invocar_antendente(data):
@@ -3741,6 +3749,7 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
