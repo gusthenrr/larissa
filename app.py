@@ -1203,6 +1203,7 @@ def handle_insert_order(data):
             broadcast=True,
             carrinho=carrinho,)
         if pedidos_formatados_3:
+            print('cozinha_emitir')
             ultimo_id_3 = ids_formatados_3[-1] if ids_formatados_3 else None
             emit_for_carrinho(
                 'emitir_pedido_cozinha',
@@ -3740,6 +3741,7 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
