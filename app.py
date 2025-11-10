@@ -30,7 +30,7 @@ from typing import Any, List, Dict
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = True
+manipule = False
 if manipule:
     subprocess.run(['python','manipule.py'])
     subprocess.run(['python','manipule2.py'])
@@ -3749,6 +3749,7 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
