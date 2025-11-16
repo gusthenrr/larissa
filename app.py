@@ -30,10 +30,9 @@ from typing import Any, List, Dict
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = False
+manipule = True
 if manipule:
     subprocess.run(['python','manipule.py'])
-    subprocess.run(['python','manipule2.py'])
 
 # Inicialização do app Flask e SocketIO
 app = Flask(
@@ -3749,6 +3748,7 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
 
 
 
