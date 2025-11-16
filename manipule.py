@@ -3,7 +3,6 @@ import shutil
 import os
 from datetime import datetime
 
-# caminho do seu banco
 var = True
 
 if var:
@@ -13,38 +12,29 @@ if var:
     db = SQL("sqlite:///" + DATABASE_PATH)
 else:
     DATABASE_PATH = "data/dados.db"
-    db=SQL("sqlite:///" + DATABASE_PATH)
+    db = SQL("sqlite:///" + DATABASE_PATH)
 
-# só as tabelas que (pelo schema que você mandou) têm coluna carrinho
-tabelas_com_carrinho = [
-    "estoque",
-    "usuarios",
-    "estoque_geral",
-    "alteracoes",
-    "tokens",
-    "pagamentos",
-    "cardapio",
-    "promotions",
-    "opcoes",
-    "opcoes_audit",
-    "clientes",
-    # se você depois adicionar carrinho em outras, é só colocar aqui
-]
+# Query com string correta
+query = "SELECT * FROM cardapio WHERE carrinho = ?"
+dados = db.execute(query, "nossopoint")
 
-# preenche só onde está NULL ou vazio
-for tabela in tabelas_com_carrinho:
-    try:
-        db.execute(f'ALTER TABLE {tabela} ADD COLUMN carrinho TEXT')
-        q = f"""
-        UPDATE {tabela}
-        SET carrinho = 'nossopoint'
-        WHERE carrinho IS NULL OR carrinho = '';
-        """
-        db.execute(q)
-        print(f"[OK] Atualizado: {tabela}")
-    except Exception as e:
-        print(f"[ERRO] {tabela}: {e}")
+for row in dados:
+    insert_query = """
+        INSERT INTO cardapio 
+        (item, preco, categoria_id, opcoes, instrucoes, image, preco_base, usable_on_qr, subcategoria, carrinho)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
 
-print("[FINISH] Tudo que tinha coluna carrinho nessas tabelas foi preenchido com 'nossopoint'.")
-
-
+    db.execute(
+        insert_query,
+        row.get("item"),
+        row.get("preco"),
+        row.get("categoria_id"),
+        row.get("opcoes"),
+        row.get("instrucoes"),
+        row.get("image"),
+        row.get("preco_base"),
+        row.get("usable_on_qr"),
+        row.get("subcategoria"),
+        "nossopoint2"
+    )
