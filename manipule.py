@@ -1,7 +1,6 @@
 from cs50 import SQL
 import shutil
 import os
-from datetime import datetime
 
 var = True
 
@@ -14,11 +13,14 @@ else:
     DATABASE_PATH = "data/dados.db"
     db = SQL("sqlite:///" + DATABASE_PATH)
 
-# Query com string correta
-query = "SELECT * FROM cardapio WHERE carrinho = ?"
-dados = db.execute(query, "nossopoint")
+# Buscar itens do carrinho 'nossopoint'
+dados = db.execute("SELECT * FROM cardapio WHERE carrinho = ?", "nossopoint")
 
 for row in dados:
+    
+    # Remove caracteres inválidos do JSON
+    opcoes_limpo = (row.get("opcoes") or "").replace("?", "")
+
     insert_query = """
         INSERT INTO cardapio 
         (item, preco, categoria_id, opcoes, instrucoes, image, preco_base, usable_on_qr, subcategoria, carrinho)
@@ -30,7 +32,7 @@ for row in dados:
         row.get("item"),
         row.get("preco"),
         row.get("categoria_id"),
-        row.get("opcoes"),
+        opcoes_limpo,
         row.get("instrucoes"),
         row.get("image"),
         row.get("preco_base"),
