@@ -6,7 +6,7 @@ from datetime import datetime
 
 # caminhos do banco
 DB_PATH = "sqlite:///data/dados.db"
-RAW_PATH = "data/dados.db"
+RAW_PATH = "/data/dados.db"
 
 # 1. backup rápido antes de mexer
 if os.path.exists(RAW_PATH): 
@@ -15,7 +15,10 @@ if os.path.exists(RAW_PATH):
     shutil.copyfile(RAW_PATH, backup_path)
     print(f"[OK] Backup criado em {backup_path}")
 
-db = SQL(DB_PATH)
+DATABASE_PATH = "/data/dados.db"
+if not os.path.exists(DATABASE_PATH):
+    shutil.copy("dados.db", DATABASE_PATH)
+db = SQL("sqlite:///" + DATABASE_PATH)
 insert_sql = """
 INSERT INTO cardapio
 (item,preco,categoria_id,opcoes,instrucoes,image,preco_base,usable_on_qr,subcategoria,subsubcategoria,carrinho)

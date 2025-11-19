@@ -4,7 +4,7 @@ import shutil, os
 from datetime import datetime
 
 DB_URL   = "sqlite:///data/dados.db"   # URL para cs50.SQL
-RAW_PATH = "data/dados.db"             # caminho físico
+RAW_PATH = "/data/dados.db"             # caminho físico
 
 def backup_db():
     if os.path.exists(RAW_PATH):
@@ -56,7 +56,10 @@ def max_existing_id(db):
 
 def main():
     backup_db()
-    db = SQL(DB_URL)
+    DATABASE_PATH = "/data/dados.db"
+    if not os.path.exists(DATABASE_PATH):
+        shutil.copy("dados.db", DATABASE_PATH)
+    db = SQL("sqlite:///" + DATABASE_PATH)
 
     try:
         db.execute("BEGIN")

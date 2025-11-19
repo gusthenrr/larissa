@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Caminho do banco
 DB_PATH = "sqlite:///data/dados.db"
-RAW_PATH = "data/dados.db"
+RAW_PATH = "/data/dados.db"
 
 # 1) Backup rápido antes de mexer
 if os.path.exists(RAW_PATH):
@@ -17,7 +17,10 @@ if os.path.exists(RAW_PATH):
 else:
     print("[AVISO] Arquivo de banco não encontrado em", RAW_PATH)
 
-db = SQL(DB_PATH)
+DATABASE_PATH = "/data/dados.db"
+if not os.path.exists(DATABASE_PATH):
+    shutil.copy("dados.db", DATABASE_PATH)
+db = SQL("sqlite:///" + DATABASE_PATH)
 
 # 2) Mostrar quantos registros existem antes
 total_antes = db.execute("SELECT COUNT(*) AS n FROM usuarios")[0]["n"]
