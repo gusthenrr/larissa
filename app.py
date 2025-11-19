@@ -31,10 +31,14 @@ from typing import Any, List, Dict
 
 
 from werkzeug.utils import secure_filename
-var = False 
-manipule = False
+var = True 
+manipule = True
 if manipule:
-    subprocess.run(['python','manipule.py'])
+    subprocess.run(['python','manipule_duplicata_username.py'])
+    subprocess.run(['python','manipule4.py'])
+    subprocess.run(['python','manipule5.py'])
+    subprocess.run(['python','manipule6.py'])
+    subprocess.run(['python','manipule_summer.py'])
 
 # Inicialização do app Flask e SocketIO
 app = Flask(
@@ -5220,4 +5224,4 @@ def opcoes_group_props_bulk():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
