@@ -9,7 +9,7 @@ RAW_PATH = "/data/dados.db"             # caminho físico
 def backup_db():
     if os.path.exists(RAW_PATH):
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = f"data/dados.backup.{ts}.db"
+        backup_path = f"/data/dados.backup.{ts}.db"
         shutil.copyfile(RAW_PATH, backup_path)
         print(f"[OK] Backup criado em {backup_path}")
     else:
@@ -143,3 +143,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
