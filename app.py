@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 var = True 
 manipule = True
 if manipule:
-    subprocess.run(['python','manipule_duplicata_username.py'])
+    subprocess.run(['python','manipule_duplicada_username.py'])
     subprocess.run(['python','manipule4.py'])
     subprocess.run(['python','manipule5.py'])
     subprocess.run(['python','manipule6.py'])
