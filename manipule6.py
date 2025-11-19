@@ -10,7 +10,7 @@ RAW_PATH = "/data/dados.db"
 # 1. backup rápido antes de mexer
 if os.path.exists(RAW_PATH):
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = f"data/dados.backup.{ts}.db"
+    backup_path = f"/data/dados.backup.{ts}.db"
     shutil.copyfile(RAW_PATH, backup_path)
     print(f"[OK] Backup criado em {backup_path}")
 
@@ -85,3 +85,4 @@ except Exception as e:
 finally:
     db.execute("PRAGMA foreign_keys = ON;")
     print("[INFO] PRAGMA foreign_keys restaurado.")
+
