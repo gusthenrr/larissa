@@ -35,11 +35,8 @@ var = True
 manipule = True
 if manipule:
     subprocess.run(['python','manipule_duplicada_username.py'])
-    subprocess.run(['python','manipule4.py'])
     subprocess.run(['python','manipule5.py'])
     subprocess.run(['python','manipule6.py'])
-    subprocess.run(['python','manipule_summer.py'])
-
 # Inicialização do app Flask e SocketIO
 app = Flask(
     __name__,
