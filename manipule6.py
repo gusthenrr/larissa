@@ -42,17 +42,18 @@ try:
             carrinho TEXT,
             unidade TEXT,
             quantidade_total REAL,
-            quantidade_por_unidade REAL
+            quantidade_por_unidade REAL,
+            usado_em_cardapio INTEGER []
         );
     """)
 
     # 3) Copiar dados SEM o ID (SQLite gera ID novo)
     db.execute("""
         INSERT INTO estoque_geral (
-            item, quantidade, estoque_ideal, carrinho, unidade, quantidade_total, quantidade_por_unidade
+            item, quantidade, estoque_ideal, carrinho, unidade
         )
         SELECT
-            item, quantidade, estoque_ideal, carrinho, unidade, quantidade_total, quantidade_por_unidade
+            item, quantidade, estoque_ideal, carrinho, unidade
         FROM estoque_geral_old;
     """)
 
@@ -85,4 +86,5 @@ except Exception as e:
 finally:
     db.execute("PRAGMA foreign_keys = ON;")
     print("[INFO] PRAGMA foreign_keys restaurado.")
+
 
