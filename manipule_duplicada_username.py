@@ -11,7 +11,7 @@ RAW_PATH = "/data/dados.db"
 # 1) Backup rápido antes de mexer
 if os.path.exists(RAW_PATH):
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = f"data/dados.usuarios.backup.{ts}.db"
+    backup_path = f"/data/dados.usuarios.backup.{ts}.db"
     shutil.copyfile(RAW_PATH, backup_path)
     print(f"[OK] Backup criado em {backup_path}")
 else:
@@ -54,3 +54,4 @@ db.execute("""
 """)
 
 print("[OK] Índice UNIQUE criado. Agora username não pode mais repetir.")
+
