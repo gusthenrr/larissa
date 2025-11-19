@@ -463,7 +463,7 @@ def enviar_notificacao_expo(cargo,titulo,corpo,token_user,carrinho, canal="defau
 
 
 def atualizar_faturamento_diario():
-    db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ? OR cargo != ?',0,'ADM','Dono')
+    db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ? AND cargo != ?',0,'ADM','Dono')
     db.execute('DELETE FROM tokens WHERE cargo!=? AND username != ?','ADM','cozinha_principal')
     dia = datetime.now(brazil).date()
     db.execute('INSERT INTO pedidos (pedido,comanda,dia, ordem) VALUES (?,?,?,?)','Comanda Aberta','controle de estoque',dia,0)
