@@ -42,7 +42,7 @@ try:
             unidade TEXT,
             quantidade_por_unidade FLOAT,
             quantidade_total FLOAT,
-            usado_em_cardapio INTEGER [], 
+            usado_em_cardapio INTEGER []
         );
     """)
 
@@ -100,4 +100,5 @@ except Exception as e:
 finally:
     # Reativar checagem de FKs (boa prática, mesmo sem FKs no momento)
     db.execute("PRAGMA foreign_keys = ON;")
+
 
