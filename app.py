@@ -31,12 +31,11 @@ from typing import Any, List, Dict
 
 
 from werkzeug.utils import secure_filename
-var = True 
-manipule = True
+var = True
+manipule = False
 if manipule:
-    subprocess.run(['python','manipule_duplicada_username.py'])
-    subprocess.run(['python','manipule5.py'])
-    subprocess.run(['python','manipule6.py'])
+    subprocess.run(['python','manipule.py'])
+
 # Inicialização do app Flask e SocketIO
 app = Flask(
     __name__,
@@ -463,7 +462,7 @@ def enviar_notificacao_expo(cargo,titulo,corpo,token_user,carrinho, canal="defau
 
 
 def atualizar_faturamento_diario():
-    db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ? AND cargo != ?',0,'ADM','Dono')
+    db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ? OR cargo != ?',0,'ADM','Dono')
     db.execute('DELETE FROM tokens WHERE cargo!=? AND username != ?','ADM','cozinha_principal')
     dia = datetime.now(brazil).date()
     db.execute('INSERT INTO pedidos (pedido,comanda,dia, ordem) VALUES (?,?,?,?)','Comanda Aberta','controle de estoque',dia,0)
@@ -599,12 +598,12 @@ def lista_dicts_para_str(dados, pretty=False):
     # compacto
     return json.dumps(dados, ensure_ascii=False, separators=(",", ":"), default=str)
 
-def get_usado_em_cardapio_ids(estoque_id, carrinho):
+def get_usado_em_cardapio_ids(estoque_id, carrinho, estoque):
     """
     Pega a lista atual de IDs do campo usado_em_cardapio_id.
     Retorna uma lista de inteiros.
     """
-    result = db.execute('SELECT usado_em_cardapio_id FROM estoque WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
+    result = db.execute(f'SELECT usado_em_cardapio_id FROM {estoque} WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
     if not result:
         return []
     
@@ -629,11 +628,11 @@ def get_usado_em_cardapio_ids(estoque_id, carrinho):
     
     return []
 
-def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
+def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque):
     """
     Adiciona um ID do cardápio à lista de usado_em_cardapio_id sem substituir os existentes.
     """
-    current_ids = get_usado_em_cardapio_ids(estoque_id, carrinho)
+    current_ids = get_usado_em_cardapio_ids(estoque_id, carrinho, estoque)
     
     # Evita duplicatas
     if cardapio_id not in current_ids:
@@ -641,9 +640,9 @@ def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
     
     # Converte para JSON e salva
     ids_json = json.dumps(current_ids)
-    db.execute('UPDATE estoque SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
+    db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
 
-def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
+def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque):
     """
     Remove um ID do cardápio da lista de usado_em_cardapio_id.
     """
@@ -655,11 +654,11 @@ def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
     
     # Se ficou vazio, salva NULL
     if not current_ids:
-        db.execute('UPDATE estoque SET usado_em_cardapio_id = NULL WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
+        db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = NULL WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
     else:
         # Converte para JSON e salva
         ids_json = json.dumps(current_ids)
-        db.execute('UPDATE estoque SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
+        db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
 
 @app.route('/verificar_quantidade', methods=['POST'])
 def verif_quantidade():
@@ -1169,7 +1168,7 @@ def editEstoque(data):
             updates.append("item=?")
             params.append(novoNome)
             alteracao+= f' Nome do {item} para {novoNome}'
-            ids = get_usado_em_cardapio_ids(db.execute(f"SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?",item, carrinho)[0]['id'], carrinho)
+            ids = get_usado_em_cardapio_ids(db.execute(f"SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?",item, carrinho)[0]['id'], carrinho, estoque)
             if ids:
                 for cardapio_id in ids:
                     try:
@@ -2830,8 +2829,14 @@ def atualizar_estoque_geral(data):
                 print('nova quantidade total', nova_quantidade_total)
                 db.execute('UPDATE estoque_geral SET quantidade = ?, quantidade_total = ? WHERE item = ? AND carrinho = ?',
                         float(quantidade),nova_quantidade_total ,item, carrinho)
-        insertAlteracoesTable('estoque geral',f'{i["item"]} de {int(anterior)} para {i["quantidade"]}','editou','Editar Estoque Geral',usuario, carrinho)
-        enviar_notificacao_expo('ADM','Estoque Geral Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho)
+        socketio.start_background_task(
+            insertAlteracoesTable,
+            'estoque geral',f'{i["item"]} de {int(anterior)} para {i["quantidade"]}','editou','Editar Estoque Geral',usuario, carrinho
+        )
+        socketio.start_background_task(
+            enviar_notificacao_expo,
+            'ADM','Estoque Geral Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho
+        )
     getEstoqueGeral({'emitir':True, 'carrinho': carrinho})
 
 
@@ -2859,8 +2864,15 @@ def atualizar_estoque(data):
                 nova_quantidade_total=quantidade_total_anterior - quantidade_diferenca
                 db.execute('UPDATE estoque SET quantidade = ?, quantidade_total = ? WHERE item = ? AND carrinho = ?',
                         float(quantidade),nova_quantidade_total ,item, carrinho)
-        insertAlteracoesTable('estoque carrinho',f'{i["item"]} de {int(anterior)} para {i["quantidade"]}','editou','Editar Estoque',usuario, carrinho)
-        enviar_notificacao_expo('ADM','Estoque Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho)
+        socketio.start_background_task(
+            insertAlteracoesTable,
+            'estoque carrinho',f'{i["item"]} de {int(anterior)} para {i["quantidade"]}','editou','Editar Estoque',usuario, carrinho
+        )
+
+        socketio.start_background_task(
+            enviar_notificacao_expo,
+            'ADM','Estoque Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho
+        )
     getEstoque({'emitir':True, 'carrinho': carrinho})
 
 
@@ -3425,7 +3437,6 @@ def delete_user(data):
 
 @socketio.on('cadastrar')
 def cadastro(data):
-    print('entrou')
     carrinho=data.get('carrinho')
     username = data.get('username')
     cargo = data.get('cargo')
@@ -3434,11 +3445,11 @@ def cadastro(data):
     print(senha)
     
     # Verificar se o username já existe
-    existing_user = db.execute('SELECT id FROM usuarios WHERE username = ?', username)[0]
+    existing_user = db.execute('SELECT id FROM usuarios WHERE username = ?', username)
     if existing_user:
         print('username ja existe')
         # Emitir erro para o frontend
-        socketio.emit('erro_cadastro', {
+        emit('erro_cadastro', {
             'message': 'Username já está sendo usado. Escolha outro nome de usuário.',
             'error': 'username_already_exists'
         })
@@ -3448,10 +3459,14 @@ def cadastro(data):
         db.execute('INSERT INTO usuarios (username,senha,cargo,liberado, carrinho) VALUES (?,?,?,?,?)',
                    username, senha, cargo, '1',carrinho)
         print('sucesso')
+        emit(
+            'cadastro_resposta',        # nome do evento que o front está ouvindo
+            {'status': 'ok'},          # payload (opcional, se vc quiser usar)  
+        )
         users({'emitir':True, 'carrinho': carrinho})
     except Exception as e:
         # Emitir erro genérico caso algo dê errado
-        socketio.emit('erro_cadastro', {
+        emit('erro_cadastro', {
             'message': 'Erro ao cadastrar usuário. Tente novamente.',
             'error': 'database_error'
         })
@@ -3689,7 +3704,7 @@ def adicionarCardapio(data):
         return
     new_id = db.execute("SELECT last_insert_rowid() AS id")[0]["id"]
     for i in ingredientes_list:
-        add_to_usado_em_cardapio_ids(i['id'], new_id, carrinho)
+        add_to_usado_em_cardapio_ids(i['id'], new_id, carrinho, i['estoque_id'])
     # sincroniza linhas da tabela `opcoes` (tabela *flat*; não armazena ingredientes)
     _sync_opcoes_rows(new_id, item, grupos, carrinho)
 
@@ -3834,7 +3849,7 @@ def editarCardapio(data):
                 # limpa transitórios e anexa id do estoque
                 if ingrediente_id is not None:
                     ingrediente['id'] = str(ingrediente_id['id'])
-                    add_to_usado_em_cardapio_ids(ingrediente_id['id'], dadoAntigo['id'], carrinho)
+                    add_to_usado_em_cardapio_ids(ingrediente_id['id'], dadoAntigo['id'], carrinho, ingrediente['estoque_id'])
 
         # serializa ingredientes para gravar no cardápio
         ingredientes_json = lista_dicts_para_str(ingredientes_list)
@@ -3937,7 +3952,7 @@ def removerCardapio(data):
                     for ingrediente in ingredientes_list:
                         estoque_id = ingrediente.get('id')
                         if estoque_id:
-                            remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho)
+                            remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, ingrediente.get('estoque_id'))
                 except Exception as e:
                     print(f"Erro ao remover referências do estoque: {e}")
         
