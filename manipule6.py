@@ -20,8 +20,8 @@ db = SQL("sqlite:///" + DATABASE_PATH)
 
 def adicionar_id_referencia():
     # 1) Verificar se a coluna id_referencia já existe
-    info = db.execute("PRAGMA table_info(cardapio);")
-    # Em cs50.SQL, cada linha é um dict: { 'cid': ..., 'name': ..., 'type': ... }
+    # Usando SELECT para o cs50.SQL retornar linhas
+    info = db.execute("SELECT name FROM pragma_table_info('cardapio');")
     colunas = [linha["name"] for linha in info]
 
     if "id_referencia" not in colunas:
