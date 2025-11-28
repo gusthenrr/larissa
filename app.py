@@ -34,7 +34,7 @@ from ifood_routes import ifood_bp, start_ifood_polling
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = True
+manipule = False
 if manipule:
     subprocess.run(['python','manipule6.py'])
 
@@ -1674,7 +1674,7 @@ def handle_insert_order(data):
             print('preco modificado depois: ', preco_modificado_item)
             # preço/categoria do cardápio
             preco_unitario_row = db.execute(
-                'SELECT preco, categoria_id, custo FROM cardapio WHERE item = ? WHERE carrinho = ?', pedido, carrinho
+                'SELECT preco, categoria_id, custo FROM cardapio WHERE item = ? AND carrinho = ?', pedido, carrinho
             )
             
             if preco_unitario_row:
