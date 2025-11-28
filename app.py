@@ -28,13 +28,15 @@ import jwt
 import json
 import os, re, unicodedata 
 from typing import Any, List, Dict
+from ifood_routes import ifood_bp, start_ifood_polling
+
 
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = False
+manipule = True
 if manipule:
-    subprocess.run(['python','manipule.py'])
+    subprocess.run(['python','manipule6.py'])
 
 # Inicialização do app Flask e SocketIO
 app = Flask(
@@ -42,6 +44,10 @@ app = Flask(
     static_folder='/data',      # pasta que vai servir arquivos
     static_url_path='/data'    # endereço para acessar esses arquivos
 )
+app.register_blueprint(ifood_bp)
+# Inicia o polling de pedidos do iFood em background
+start_ifood_polling()
+
 
 load_dotenv()
 app.config['SECRET_KEY'] = os.getenv("MOST_SECRET_KEY",'quero-quero17')
@@ -164,7 +170,7 @@ def pegar_pagamentos_comanda():
     data = request.get_json()
     comanda = data.get('comanda')
     carrinho = data.get('carrinho', 'NossoPoint')
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     pagamentos = db.execute('SELECT * FROM pagamentos WHERE comanda = ? AND dia = ? AND ordem = 0 AND carrinho = ?',comanda,dia,carrinho)
     if not pagamentos:
         pagamentos = []
@@ -245,10 +251,10 @@ def excluir_pedido(data):
             opcoes =str_para_lista_de_dicts(opcoes_format) if opcoes_format else []
             ingredientes=str_para_lista_de_dicts(ingredientes_format) if ingredientes_format else []
             if ingredientes == []:
-                quantidade_estoque=db.execute('SELECT quantidade FROM estoque WHERE item = ?', item)
+                quantidade_estoque=db.execute('SELECT quantidade FROM estoque WHERE item = ? and carrinho=?', item, carrinho)
                 if quantidade_estoque:
                     nova_quantidade=quantidade_estoque[0]['quantidade'] + quantidade
-                    db.execute('UPDATE estoque SET quantidade = ? WHERE item = ?', nova_quantidade, item)
+                    db.execute('UPDATE estoque SET quantidade = ? WHERE item = ? and carrinho = ?', nova_quantidade, item, carrinho)
             else:
                 for ingrediente in ingredientes:
                     id_ingrediente = ingrediente.get('id')
@@ -295,7 +301,7 @@ def excluir_pagamento():
             ids_list = json.loads(ids[0]['ids'])
             print('ids_list', ids_list)
             for row in ids_list:
-                db.execute('UPDATE pedidos SET quantidade_paga = quantidade_paga - ?, preco = preco_unitario *NULLIF((quantidade-(quantidade_paga - ?)),0) WHERE id = ? AND dia = ?',row['quantidade'],row['quantidade'],row['id'],datetime.now(brazil).date())
+                db.execute('UPDATE pedidos SET quantidade_paga = quantidade_paga - ?, preco = preco_unitario *NULLIF((quantidade-(quantidade_paga - ?)),0) WHERE id = ? AND dia = ?',row['quantidade'],row['quantidade'],row['id'],data_brasil_corte_3h())
         db.execute('DELETE FROM pagamentos WHERE id = ?', pagamento_id)
         
         handle_get_cardapio(comanda, carrinho)
@@ -314,6 +320,23 @@ else:
     db=SQL("sqlite:///" + DATABASE_PATH)
 
 brazil = timezone('America/Sao_Paulo')
+
+def data_brasil_corte_3h(dt=None):
+    """
+    Retorna a data considerando que o 'dia' vai de 03:00 a 02:59.
+    Se dt for None, usa o agora no fuso do Brasil.
+    """
+    if dt is None:
+        dt = datetime.now(brazil)
+    else:
+        # garante que está no fuso do Brasil
+        if dt.tzinfo is None:
+            dt = brazil.localize(dt)
+        else:
+            dt = dt.astimezone(brazil)
+
+    return (dt - timedelta(hours=3)).date()
+
 
 os.makedirs(app.static_folder, exist_ok=True)
 
@@ -355,7 +378,7 @@ def validate_token_on_qr():
             else:
                 data_update_date = data_update
             print('data_update',data_update_date)
-            if data_update_date < datetime.now(brazil).date() + timedelta(days=5):
+            if data_update_date < data_brasil_corte_3h() + timedelta(days=5):
                 print('valid token')
                 return jsonify({'valid': True}), 200
         print('invalid token or expired')
@@ -463,13 +486,13 @@ def enviar_notificacao_expo(cargo,titulo,corpo,token_user,carrinho, canal="defau
 
 def atualizar_faturamento_diario():
     db.execute('UPDATE usuarios SET liberado = ? WHERE cargo != ? AND cargo != ?',0,'ADM','Dono')
-    db.execute('DELETE FROM tokens WHERE cargo!=? AND username != ? AND cargo!=?','ADM','cozinha_principal','Dono')
-    dia = datetime.now(brazil).date()
+    db.execute('DELETE FROM tokens WHERE cargo!=? AND username != ? AND cargo!=?','ADM','cozinha_principal', 'Dono')
+    dia = data_brasil_corte_3h()
     db.execute('INSERT INTO pedidos (pedido,comanda,dia, ordem) VALUES (?,?,?,?)','Comanda Aberta','controle de estoque',dia,0)
     db.execute('INSERT INTO pedidos (pedido,comanda,dia, ordem) VALUES (?,?,?,?)','Comanda Aberta','pago na hora',dia,0)
-    end_p_dict = db.execute('SELECT products,status FROM promotions WHERE endDate < ? ',datetime.now(brazil).date().strftime('%Y-%m-%d'))
+    end_p_dict = db.execute('SELECT products,status FROM promotions WHERE endDate < ? ',data_brasil_corte_3h().strftime('%Y-%m-%d'))
     if end_p_dict:
-        db.execute('UPDATE promotions SET status = ? WHERE endDate < ?','expired',datetime.now(brazil).date().strftime('%Y-%m-%d'))
+        db.execute('UPDATE promotions SET status = ? WHERE endDate < ?','expired',data_brasil_corte_3h().strftime('%Y-%m-%d'))
         for row in end_p_dict:
             itens = json.loads(row.get('products',[]))
             for item in itens:
@@ -480,7 +503,13 @@ def atualizar_faturamento_diario():
 
 # Agendador para rodar à meia-noite
 scheduler = BackgroundScheduler()
-scheduler.add_job(atualizar_faturamento_diario, 'cron', hour=0, minute=5, timezone = brazil)
+scheduler.add_job(
+    atualizar_faturamento_diario,
+    'cron',
+    hour=3,
+    minute=5,
+    timezone=brazil
+)
 scheduler.start()
 
 # Garante que o scheduler pare quando encerrar o servidor
@@ -526,6 +555,7 @@ def opc():
 @app.route('/pegar_pedidos', methods=['POST'])
 def pegar_pedidos():
     # Pegando os dados do JSON enviado na requisição
+    print('entrou pegar pedidos')
     data = request.get_json()
     comanda = data.get('comanda')
     ordem = data.get('ordem')
@@ -533,12 +563,13 @@ def pegar_pedidos():
     if int(ordem) != 0:
         
         print(f'ORDEM : {ordem}')
-        dia = datetime.now(brazil).date()
+        dia = data_brasil_corte_3h()
         dados = db.execute('''
-                SELECT pedido, id, ordem, SUM(quantidade) AS quantidade, SUM(preco) AS preco
+                SELECT pedido, id, ordem, SUM(quantidade) AS quantidade, SUM(preco) AS preco, preco_unitario
                 FROM pedidos WHERE comanda = ? AND ordem = ? AND dia = ? AND pedido != ? AND carrinho = ?
                 GROUP BY pedido, (preco/quantidade)
             ''', comanda, int(ordem),dia, 'Comanda Aberta', carrinho)
+        print('dados',dados)
     
         return{'data':dados,'preco':''}
     else:
@@ -827,8 +858,8 @@ def transferir_comanda():
             return jsonify({'error': 'Source and destination comandas must be different.'}), 400
 
         # Fetch orders from the source comanda
-        db.execute("UPDATE pedidos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ? AND carrinho = ?", comanda_destino, comanda_origem, 0, datetime.now().date(), carrinho)
-        db.execute("UPDATE pagamentos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ? AND carrinho = ?", comanda_destino, comanda_origem, 0, datetime.now().date(), carrinho)
+        db.execute("UPDATE pedidos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ? AND carrinho = ?", comanda_destino, comanda_origem, 0, data_brasil_corte_3h(), carrinho)
+        db.execute("UPDATE pagamentos SET comanda = ? WHERE comanda = ? AND ordem = ? AND dia = ? AND carrinho = ?", comanda_destino, comanda_origem, 0, data_brasil_corte_3h(), carrinho)
         getPedidos({'emitir': True, 'carrinho': carrinho})
         getComandas({'emitir': True, 'carrinho': carrinho})
         handle_get_cardapio(comanda_destino, carrinho)
@@ -873,7 +904,7 @@ def get_pending_print_orders():
     printed = 0
     ordem = 0
 
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     inicio_limite = (datetime.now(brazil) - timedelta(minutes=25)).strftime('%H:%M')
 
     # CORREÇÃO: usar tupla de parâmetros
@@ -957,10 +988,12 @@ def getCarrinhos(data):
     if carrinho:
         _register_carrinho_room(carrinho)
 
-    carrinhos = db.execute('SELECT * FROM carrinhos')
-    print('getCarrinhos')
-    print('carrinhos',carrinhos)
-    emit_for_carrinho('respostaCarrinhos', {'carrinhos': carrinhos}, broadcast=emitirBroadcast, carrinho=carrinho)
+    carrinhos = db.execute('SELECT empresas FROM carrinhos where carrinho = ? ORDER BY empresas ASC', carrinho)
+    empresas = []
+    for car in carrinhos:
+        if car:
+            empresas.append(car['empresas'])
+    emit_for_carrinho('respostaCarrinhos', {'carrinhos': empresas}, broadcast=emitirBroadcast, carrinho=carrinho)
 
 
 @socketio.on('getPedidosCC')
@@ -969,19 +1002,17 @@ def getPedidosCC(data):
     if isinstance(data, dict):
         emitirBroadcast = data.get('emitir', True)
         carrinho = data.get('carrinho')
-
+    
     print('emitirBroadcast', emitirBroadcast)
-    print('carrinho', carrinho)
     _register_carrinho_room(carrinho)
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     empresas=db.execute('SELECT empresas FROM carrinhos WHERE carrinho = ?', carrinho)
-    print('empresas', empresas)
     data_pedidos_completos = []
     for e in empresas:
-        dataPedidos = db.execute('SELECT * FROM pedidos WHERE dia = ? AND pedido != ? AND carrinho = ?',dia,'Comanda Aberta',e['empresas'])
+        dataPedidos = db.execute('SELECT * FROM pedidos WHERE dia = ? AND pedido != ? AND carrinho = ? AND categoria = ?',dia,'Comanda Aberta',e['empresas'],3)
         if dataPedidos:
             data_pedidos_completos.extend(dataPedidos)
-    for i in db.execute('SELECT * FROM pedidos WHERE dia = ? AND pedido != ? AND carrinho = ?',dia,'Comanda Aberta',carrinho):
+    for i in db.execute('SELECT * FROM pedidos WHERE dia = ? AND pedido != ? AND carrinho = ? AND categoria = ?',dia,'Comanda Aberta',carrinho,3):
         data_pedidos_completos.append(i)
     if not data_pedidos_completos:
         data_pedidos_completos = []
@@ -999,7 +1030,7 @@ def getPedidos(data):
     print('emitirBroadcast', emitirBroadcast)
     print('carrinho', carrinho)
     _register_carrinho_room(carrinho)
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     dataPedidos = db.execute('SELECT * FROM pedidos WHERE dia = ? AND pedido != ? AND carrinho = ?',dia,'Comanda Aberta',carrinho)
     if not dataPedidos:
         dataPedidos = []
@@ -1044,7 +1075,7 @@ def getComandas(data):
         carrinho = data.get('carrinho')
 
     _register_carrinho_room(carrinho)
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     sql_abertas = """
         SELECT comanda
         FROM pedidos
@@ -1163,6 +1194,7 @@ def editEstoque(data):
         if novoNome:
             existe=db.execute(f'SELECT item FROM {estoque} WHERE item = ? AND carrinho = ?',novoNome, carrinho)
             if existe:
+                print('Nome igual encontrado no estoque')
                 emit(f'{estoque}Alterado',{'erro':'Nome Igual'})
                 return
             updates.append("item=?")
@@ -1353,7 +1385,7 @@ def arredondar_personalizado(qtd, por_unidade, down=0.30, up=0.31):
 @socketio.on('insert_order')
 def handle_insert_order(data):
     try:
-        dia = datetime.now(brazil).date()
+        dia = data_brasil_corte_3h()
 
         # ---------- Helpers ----------
         def to_list(x):
@@ -1513,11 +1545,23 @@ def handle_insert_order(data):
         print('preco modificado antes: ', preco_modificado)
         nomes         = to_list(data.get('nomeSelecionado'))
         token_user    = data.get('token_user')
-        carrinho      = data.get('carrinho')
-        _register_carrinho_room(carrinho)
+        carrinho_primario      = data.get('carrinho')
+        _register_carrinho_room(carrinho_primario)
+        carrinho_destino = data.get('carrinho_destino',None)
+        if carrinho_destino:
+            exist = db.execute('SELECT 1 FROM carrinhos WHERE empresas = ?', carrinho_destino)
+            if not exist:
+                db.execute('INSERT INTO carrinhos (carrinho, empresas) VALUES (?,?)', carrinho_primario, carrinho_destino)
+            else:
+                db.execute('UPDATE carrinhos SET carrinho = ? WHERE empresas = ?', carrinho_primario, carrinho_destino)
+            carrinho = carrinho_destino
+            
+        else:
+            carrinho = carrinho_primario
 
         # opções estruturadas (podem vir str/json/list/dict)
         opcoesSelecionadas = parse_json_maybe(data.get('opcoesSelecionadas')) or []
+        print('opcoesSelecionadas parsed: ', opcoesSelecionadas)
 
         # "extraSelecionados" é texto livre (lista 1-para-1 com pedidos)
         extra_list    = to_list(data.get('extraSelecionados'))
@@ -1550,8 +1594,11 @@ def handle_insert_order(data):
 
         # ---------- Soma de valor_extra (por unidade) ----------
         def somar_extra_por_unidade(selection):
+            print('selection para somar extra por unidade: ', selection)
             def _sum_from_groups(groups):
+                print('groups para somar extra por unidade: ', groups)
                 total = 0.0
+                custo_total = 0.0
                 for g in groups:
                     if not isinstance(g, dict):
                         continue
@@ -1565,12 +1612,14 @@ def handle_insert_order(data):
                             continue
                         try:
                             total += float(opt.get('valor_extra') or 0)
+                            custo_total += float(opt.get('custo') or 0)
+                            print('custo extra: ', custo_total)
                         except Exception:
                             pass
-                return total
+                return total, custo_total
 
             if not selection:
-                return 0.0
+                return 0.0, 0.0
 
             if isinstance(selection, dict):
                 if isinstance(selection.get('options') or selection.get('opcoes'), list):
@@ -1582,7 +1631,7 @@ def handle_insert_order(data):
                     if groups and isinstance(groups[0], dict) and 'valor_extra' in groups[0] and 'options' not in groups[0]:
                         groups = [{'nome': 'Opções', 'options': groups}]
                     return _sum_from_groups(groups)
-                return 0.0
+                return 0.0, 0.0
 
             if isinstance(selection, list):
                 if not selection:
@@ -1592,9 +1641,9 @@ def handle_insert_order(data):
                     return _sum_from_groups(selection)
                 if isinstance(first, dict) and 'valor_extra' in first and 'options' not in first:
                     return _sum_from_groups([{'nome': 'Opções', 'options': selection}])
-                return 0.0
+                return 0.0, 0.0
 
-            return 0.0
+            return 0.0, 0.0
 
         # ---------- Logs úteis ----------
         print("[insert_order] username:", username)
@@ -1619,19 +1668,20 @@ def handle_insert_order(data):
             pedido = str(pedido).strip()
             if not pedido:
                 continue
-
+                
             quantidade = _to_float(get_or_default(quantidades, i, 1) or 1, 1.0)
             preco_modificado_item = float(preco_modificado[i]) if preco_modificado and i < len(preco_modificado) and preco_modificado[i] else None
             print('preco modificado depois: ', preco_modificado_item)
             # preço/categoria do cardápio
             preco_unitario_row = db.execute(
-                'SELECT preco, categoria_id FROM cardapio WHERE item = ?', pedido
+                'SELECT preco, categoria_id, custo FROM cardapio WHERE item = ? WHERE carrinho = ?', pedido, carrinho
             )
             
             if preco_unitario_row:
                 categoria = preco_unitario_row[0]['categoria_id']
                 if comanda != 'controle de estoque':
                     preco_base = float(preco_unitario_row[0]['preco'])
+                    custo_base = float(preco_unitario_row[0]['custo'] or 0.0)
                 else:
                     preco_base = 0.0
             else:
@@ -1643,7 +1693,8 @@ def handle_insert_order(data):
             extra_txt      = (get_or_default(extra_list, i, "") or "").strip()
             nome_cliente   = get_or_default(nomes, i, "-1") or "-1"
             selecao_opcoes = selecionar_opcoes_por_indice(i)
-            extra_unidade  = somar_extra_por_unidade(selecao_opcoes)
+            print('selecao_opcoes para item', i, ': ', selecao_opcoes)
+            extra_unidade, custo_extra_unidade  = somar_extra_por_unidade(selecao_opcoes)
             opcoes_json    = json.dumps(selecao_opcoes or [], ensure_ascii=False)
 
             # ETA por categoria + notificação
@@ -1659,32 +1710,37 @@ def handle_insert_order(data):
 
             # cálculo de preço
             preco_unitario_final = preco_base + float(extra_unidade or 0)
+            custo_unitario_final = custo_base + float(custo_extra_unidade or 0)
             preco_total          = preco_unitario_final * quantidade
+            custo_total          = custo_unitario_final * quantidade
 
             # remetente/endereço    
             remetente        = remetente_padrao
             endereco_entrega = endereco_entrega_pad
-
+            lucro_unitario = preco_unitario_final - custo_unitario_final
+            lucro_total    = lucro_unitario * quantidade
             # ---------- INSERT ----------
             if preco_flag:  # brinde
                 print('entrou aqui')
                 db.execute(
-                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, carrinho) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, lucro_unitario, lucro_total, carrinho) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     comanda, pedido, quantidade, 0, categoria, horario, 'A Fazer',
-                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, carrinho
+                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, 0.0, 0.0,carrinho
                 )
             elif preco_modificado_item:
                 preco_unitario_final = preco_modificado_item
                 preco_total = preco_unitario_final * quantidade
+                lucro_unitario = preco_unitario_final - custo_unitario_final
+                lucro_total    = lucro_unitario * quantidade
                 enviar_notificacao_expo('Colaborador', 'Novo Pedido',f'Alterou o preco de {preco_base} para {preco_unitario_final}', token_user, carrinho)
                 insertAlteracoesTable('Pedidos', f'Preco modificado de {preco_base} para {preco_unitario_final} no pedido de {pedido} na comanda {comanda}', 'Modificou Preco', 'Inicio', username, carrinho)
                 db.execute(
-                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, preco_unitario, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, carrinho) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, preco_unitario, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, lucro_unitario, lucro_total, carrinho) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     comanda, pedido, quantidade,
                     preco_total, preco_unitario_final, categoria, horario, 'A Fazer',
-                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, carrinho
+                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, lucro_unitario, lucro_total, carrinho
                 )
             elif not preco_unitario_row:  # fora do cardápio
                 db.execute(
@@ -1695,41 +1751,62 @@ def handle_insert_order(data):
                 )
             else:
                 db.execute(
-                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, preco_unitario, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, carrinho) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO pedidos (comanda, pedido, quantidade, preco, preco_unitario, categoria, inicio, estado, extra, opcoes, username, ordem, nome, remetente, endereco_entrega, dia, horario_para_entrega, lucro_unitario, lucro_total, carrinho) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     comanda, pedido, quantidade,
                     preco_total, preco_unitario_final, categoria, horario, 'A Fazer',
-                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, carrinho
+                    extra_txt, opcoes_json, username, 0, nome_cliente, remetente, endereco_entrega, dia, horario_entrega, lucro_unitario, lucro_total, carrinho
                 )
 
             # ---------- Eventos/estoque ----------
-            ingredientes_format = db.execute('SELECT ingredientes FROM cardapio WHERE item = ? AND carrinho = ?', pedido, carrinho)
-            # 1) baixa do próprio item no estoque (quando existir como "Restante")
-            ingredientes_veri=ingredientes_format[0]['ingredientes']
+                        # ---------- Eventos/estoque ----------
+            ingredientes_format = db.execute(
+                'SELECT ingredientes FROM cardapio WHERE item = ? AND carrinho = ?',
+                pedido, carrinho
+            )
+
+            # Se não achou linha no cardápio, tratamos como se não tivesse ingredientes
+            ingredientes_veri = None
+            if ingredientes_format and 'ingredientes' in ingredientes_format[0]:
+                ingredientes_veri = ingredientes_format[0]['ingredientes']
+
+            # 1) baixa do próprio item no estoque (quando existir como "Restante" ou cardápio sem registro)
             if ingredientes_veri is None:
-                print('entrou')
-                quantidade_anterior = db.execute('SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?', pedido, carrinho)
+                quantidade_anterior = db.execute(
+                    'SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?',
+                    pedido, carrinho
+                )
                 if quantidade_anterior:
                     quantidade_nova = _to_float(quantidade_anterior[0]['quantidade'], 0.0) - quantidade
                     if quantidade_nova < 0:
                         quantidade_nova = 0
-                    db.execute('UPDATE estoque SET quantidade = ? WHERE item = ? AND carrinho = ?', quantidade_nova, pedido, carrinho)
+                    db.execute(
+                        'UPDATE estoque SET quantidade = ? WHERE item = ? AND carrinho = ?',
+                        quantidade_nova, pedido, carrinho
+                    )
                     if quantidade_nova < 10:
-                        emit_for_carrinho('alerta_restantes', {'quantidade': quantidade_nova, 'item': pedido}, broadcast=True, carrinho=carrinho)
-                    getEstoque({'emitir':True,'carrinho':carrinho})
+                        emit_for_carrinho(
+                            'alerta_restantes',
+                            {'quantidade': quantidade_nova, 'item': pedido},
+                            broadcast=True,
+                            carrinho=carrinho_primario
+                        )
+                    getEstoque({'emitir': True, 'carrinho': carrinho})
 
             # 2) baixa dos ingredientes do item
-            if ingredientes_veri is not None:
-                print('entrou 2')
-                ingredientes = str_para_lista_de_dicts(ingredientes_format[0]['ingredientes']) if ingredientes_format and ingredientes_format[0].get('ingredientes') else []
+            if ingredientes_veri:
+                ingredientes = str_para_lista_de_dicts(ingredientes_veri) or []
                 for ingrediente in ingredientes:
                     id_ingrediente = ingrediente.get('id')
                     print('id_ingrediente', id_ingrediente)
-                    unidade        = ingrediente.get('unidade')
-                    qtd_por_item   = _to_float(ingrediente.get('quantidade') or 0, 0.0)
-                    qtd_total      = qtd_por_item * quantidade
-                    estoque_id     = ingrediente.get('estoque_id')
-                    _deduzir_estoque_por_ingrediente(id_ingrediente, unidade, qtd_total, carrinho, estoque_id)
+                    unidade      = ingrediente.get('unidade')
+                    qtd_por_item = _to_float(ingrediente.get('quantidade') or 0, 0.0)
+                    qtd_total    = qtd_por_item * quantidade
+                    estoque_id   = ingrediente.get('estoque_id')
+                    _deduzir_estoque_por_ingrediente(
+                        id_ingrediente, unidade, qtd_total, carrinho, estoque_id
+                    )
+
 
             # 3) baixa dos ingredientes das OPÇÕES selecionadas
             for ing in _iter_ingredientes_de_opcoes(selecao_opcoes):
@@ -1782,7 +1859,7 @@ def handle_insert_order(data):
             {'mesa': comanda, 'pedido': pedidos_formatados_1,'remetente': carrinho, 'endereco': endereco_entrega,'prazo': horario_entrega,
                 'hora': hora, 'sendBy': username, 'id': ultimo_id_1, 'ids': ids_formatados_1},
             broadcast=True,
-            carrinho=carrinho,)
+            carrinho=carrinho_primario,)
         if pedidos_formatados_3:
             ultimo_id_3 = ids_formatados_3[-1] if ids_formatados_3 else None
             emit_for_carrinho(
@@ -1790,14 +1867,14 @@ def handle_insert_order(data):
                 {'mesa': comanda, 'pedido': pedidos_formatados_3,'remetente': carrinho, 'endereco_entrega': endereco_entrega,'prazo': horario_entrega,
                     'hora': hora, 'sendBy': username, 'id': ultimo_id_3, 'ids': ids_formatados_3},
                 broadcast=True,
-                carrinho=carrinho,
+                carrinho=carrinho_primario,
             )
 
         # Atualizações finais
-        faturamento({'emitir': True, 'carrinho': carrinho})
-        getPedidos({'emitir': True, 'carrinho': carrinho})
-        getPedidosCC({'emitir': True, 'carrinho': carrinho})
-        getComandas({'emitir': True, 'carrinho': carrinho})
+        faturamento({'emitir': True, 'carrinho': carrinho_primario})
+        getPedidos({'emitir': True, 'carrinho': carrinho_primario})
+        getPedidosCC({'emitir': True, 'carrinho': carrinho_primario})
+        getComandas({'emitir': True, 'carrinho': carrinho_primario})
         handle_get_cardapio(comanda, carrinho)
 
     except Exception as e:
@@ -1812,12 +1889,12 @@ def faturamento(data):
 
     if isinstance(data, dict):
         change = data.get('change', 0)
-        dia = datetime.now(brazil).date() + timedelta(days=(change))
+        dia = data_brasil_corte_3h() + timedelta(days=(change))
         dia_formatado = dia.strftime('%d/%m')
         emitir = data.get('emitir', True)
         carrinho = data.get('carrinho')
     else:
-        dia = datetime.now(brazil).date()
+        dia = data_brasil_corte_3h()
         emitir = data if isinstance(data, bool) else True
         dia_formatado = dia.strftime('%d/%m')
         carrinho = 'NossoPoint'
@@ -1852,7 +1929,8 @@ def faturamento(data):
     pedidosQuantDict = db.execute("""
         SELECT categoria,
                SUM(quantidade) AS quantidade_total,
-               SUM(preco_unitario*NULLIF(quantidade,0))      AS preco_total
+               SUM(preco_unitario*NULLIF(quantidade,0))      AS preco_total,
+               SUM(lucro_unitario*NULLIF(quantidade,0))      AS lucro_total
         FROM pedidos
         WHERE dia = ?
           AND pedido != ? AND carrinho = ?
@@ -1863,6 +1941,8 @@ def faturamento(data):
     drink = restante = porcao = 0
     faturamento_drink = faturamento_restante = faturamento_porcao = 0
     faturamento_previsto = 0
+    lucro_previsto = 0
+    lucro_drink = lucro_restante = lucro_porcao = 0
     for row in pedidosQuantDict:
         cat = row.get('categoria')
         qtd = row.get('quantidade_total') or 0
@@ -1870,13 +1950,17 @@ def faturamento(data):
         if cat == '1':
             restante = qtd
             faturamento_restante = preco_cat
+            lucro_restante = (row.get('lucro_total') or 0)
         elif cat == '2':
             drink = qtd
             faturamento_drink = preco_cat
+            lucro_drink = (row.get('lucro_total') or 0)
         elif cat == '3':
             porcao = qtd
             faturamento_porcao = preco_cat
+            lucro_porcao = (row.get('lucro_total') or 0)
         faturamento_previsto += (row.get('preco_total') or 0)
+        lucro_previsto += (row.get('lucro_total') or 0)
 
 
     pedidos = (drink or 0) + (restante or 0) + (porcao or 0)
@@ -1889,12 +1973,16 @@ def faturamento(data):
         {'dia': str(dia_formatado),
          'faturamento': total_recebido,
          'faturamento_previsto': faturamento_previsto,
+         'lucro_previsto': lucro_previsto,
          'drink': drink,
          'porcao': porcao,
          "restante": restante,
          "faturamento_drink": faturamento_drink,
          "faturamento_porcao": faturamento_porcao,
          "faturamento_restante": faturamento_restante,
+         "lucro_drink": lucro_drink,
+         "lucro_porcao": lucro_porcao,
+         "lucro_restante": lucro_restante,
          "pedidos": pedidos,
          "caixinha": caixinha,
          "dezporcento": dezporcento,
@@ -1912,7 +2000,7 @@ def faturamento(data):
 
 @socketio.on('alterarValor')
 def alterarValor(data):
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     valor = float(data.get('valor'))
     comanda = data.get('comanda')
     carrinho = data.get('carrinho')
@@ -2183,9 +2271,9 @@ def update_pedidos_opcoes_sqlite(params):
             )
 def insertAlteracoesTableSql(tabela, alteracao, tipo, tela, usuario, carrinho):
     #!!
-    hoje = datetime.now(brazil).date()
+    data_brasil_corte_3h()
     horario = datetime.now(brazil).strftime('%H:%M')
-
+    hoje = data_brasil_corte_3h()
     # 🚫 não usar db.execute aqui
     with closing(sqlite3.connect(DATABASE_PATH)) as conn:
         conn.row_factory = sqlite3.Row
@@ -2458,7 +2546,7 @@ def _ajusta_ingredientes_estado(
 
 @socketio.on('atualizar_pedidos')
 def handle_atualizar_pedidos(data):
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     p = data.get('pedidoAlterado') or {}
     usuario = data.get('usuario')
     token_user = data.get('token')
@@ -2633,7 +2721,7 @@ def handle_atualizar_pedidos(data):
 
 @socketio.on('desfazer_pagamento')
 def desfazer_pagamento(data):
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     comanda = data.get('comanda')
     carrinho = data.get('carrinho')
     ids_dict = db.execute('''
@@ -2669,41 +2757,70 @@ def desfazer_pagamento(data):
     db.execute('UPDATE pedidos SET ordem = ordem - ? WHERE comanda = ? AND dia = ? AND ordem != ? AND carrinho = ?',1,comanda,dia,0,carrinho)
     faturamento({'emitir': True, 'carrinho': carrinho})
     handle_get_cardapio(comanda, carrinho)
+    getComandas({'emitir': True, 'carrinho': carrinho})
 
 
 
 @socketio.on('delete_comanda')
 def handle_delete_comanda(data):
     try:
-        #!!
-        dia = datetime.now(brazil).date()
-        carrinho = data.get('carrinho')  # valor padrão
+        dia = data_brasil_corte_3h()
+        carrinho = data.get('carrinho')
         _register_carrinho_room(carrinho)
-        
-        # Identificar a comanda recebida
+
         comanda = data.get('fcomanda')
-        valor_pago = float(data.get('valor_pago'))
-        caixinha = data.get('caixinha',0)
-        dez_por_cento = data.get('dez_por_cento',0)
-        if not caixinha:
-            caixinha=0
-        else:
-            caixinha=float(caixinha)
-        if not dez_por_cento:
-            dez_por_cento=0
-        else:
-            dez_por_cento=float(dez_por_cento)
 
-        forma_de_pagamento = data.get('forma_de_pagamento')
-        print('forma de pagamento', forma_de_pagamento)
-        dia = datetime.now(brazil).date()
-        print(f'Data de hoje: {dia}')
-        db.execute('INSERT INTO pagamentos (valor,valor_total,caixinha,dez_por_cento,tipo,ordem,dia,forma_de_pagamento,comanda,horario,carrinho) VALUES (?,?,?,?,?,?,?,?,?,?,?)',valor_pago,valor_pago+caixinha+dez_por_cento,caixinha,dez_por_cento,'normal',0,dia,forma_de_pagamento,comanda,datetime.now(brazil).strftime('%H:%M'),carrinho)
-            
-           
+        # pode vir None quando é chamado a partir do pagar_parcial
+        valor_pago_dict = data.get('valor_pago')
 
-        db.execute('UPDATE pedidos SET ordem = ordem +? WHERE comanda = ? AND dia = ? AND carrinho = ?',1,comanda, dia, carrinho)
-        db.execute('UPDATE pagamentos SET ordem = ordem + ? WHERE comanda = ? AND dia = ? AND carrinho = ?',1,comanda,dia,carrinho)
+        if valor_pago_dict is not None:
+            # fluxo "Pagar Restante" vindo do app
+            valor_pago = float(valor_pago_dict)
+
+            caixinha = data.get('caixinha', 0)
+            dez_por_cento = data.get('dez_por_cento', 0)
+
+            if not caixinha:
+                caixinha = 0
+            else:
+                caixinha = float(caixinha)
+
+            if not dez_por_cento:
+                dez_por_cento = 0
+            else:
+                dez_por_cento = float(dez_por_cento)
+
+            forma_de_pagamento = data.get('forma_de_pagamento')
+            print('forma de pagamento', forma_de_pagamento)
+            print(f'Data de hoje: {dia}')
+
+            # só insere pagamento se valor_pago veio no payload
+            db.execute(
+                'INSERT INTO pagamentos (valor,valor_total,caixinha,dez_por_cento,tipo,ordem,dia,forma_de_pagamento,comanda,horario,carrinho) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                valor_pago,
+                valor_pago + caixinha + dez_por_cento,
+                caixinha,
+                dez_por_cento,
+                'normal',
+                0,
+                dia,
+                forma_de_pagamento,
+                comanda,
+                datetime.now(brazil).strftime('%H:%M'),
+                carrinho
+            )
+
+        # daqui pra baixo SEMPRE roda: só “fecha” a comanda
+        db.execute(
+            'UPDATE pedidos SET ordem = ordem + ? WHERE comanda = ? AND dia = ? AND carrinho = ?',
+            1, comanda, dia, carrinho
+        )
+        db.execute(
+            'UPDATE pagamentos SET ordem = ordem + ? WHERE comanda = ? AND dia = ? AND carrinho = ?',
+            1, comanda, dia, carrinho
+        )
+
         faturamento({'emitir': True, 'carrinho': carrinho})
         getComandas({'emitir': True, 'carrinho': carrinho})
         getPedidos({'emitir': True, 'carrinho': carrinho})
@@ -2715,12 +2832,15 @@ def handle_delete_comanda(data):
         emit('error', {'message': str(e)})
 
 
+
+
 @socketio.on('pagar_parcial')
 def pagar_parcial(data):
     comanda = data.get('fcomanda')
     carrinho = data.get('carrinho')
     print(f'pagar parcial comanda : {comanda}')
     valor_pago = float(data.get('valor_pago'))
+    print(f'valor pago : {valor_pago}')
     forma_de_pagamento = data.get('forma_de_pagamento')
     caixinha = data.get('caixinha',0)
     dez_por_cento = data.get('dez_por_cento',0)
@@ -2733,7 +2853,7 @@ def pagar_parcial(data):
     else:
         dez_por_cento=float(dez_por_cento)
     
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     
     totalComandaDict = db.execute('SELECT SUM(preco) AS total FROM pedidos WHERE comanda = ? AND ordem = ? AND dia = ? AND carrinho = ?', comanda, 0,dia, carrinho)
     valorTotalDict = db.execute('SELECT SUM(valor_total) as total FROM pagamentos WHERE dia = ? AND comanda = ? AND ordem = ? AND tipo = ? AND carrinho = ?',dia,comanda,0,'normal',carrinho)
@@ -2746,7 +2866,6 @@ def pagar_parcial(data):
     db.execute('INSERT INTO pagamentos (valor,valor_total,caixinha,dez_por_cento,tipo,ordem,dia,forma_de_pagamento,comanda,horario,carrinho) VALUES (?,?,?,?,?,?,?,?,?,?,?)',valor_pago,valor_pago+caixinha+dez_por_cento,caixinha,dez_por_cento,'normal',0,dia,forma_de_pagamento,comanda,datetime.now(brazil).strftime('%H:%M'),carrinho)
     faturamento({'emitir': True, 'carrinho': carrinho})
     if valorTotal+valor_pago>=totalComandaDict[0]['total']:
-        db.execute('UPDATE pagamentos SET ordem = ordem + ? WHERE dia = ? AND comanda = ? AND carrinho = ?',1,dia,comanda,carrinho)
         handle_delete_comanda({'fcomanda':comanda, 'carrinho':carrinho})
     
     handle_get_cardapio(comanda, carrinho)
@@ -2831,11 +2950,11 @@ def atualizar_estoque_geral(data):
                         float(quantidade),nova_quantidade_total ,item, carrinho)
         socketio.start_background_task(
             insertAlteracoesTable,
-            'estoque geral',f'{i["item"]} de {int(anterior)} para {i["quantidade"]}','editou','Editar Estoque Geral',usuario, carrinho
+            'estoque geral',f'{i["item"]} de {str(anterior)} para {i["quantidade"]}','editou','Editar Estoque Geral',usuario, carrinho
         )
         socketio.start_background_task(
             enviar_notificacao_expo,
-            'ADM','Estoque Geral Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho
+            'ADM','Estoque Geral Atualizado',f'{usuario} Editou {i["item"]} de {str(anterior)} para {i["quantidade"]}',token_user, carrinho
         )
     getEstoqueGeral({'emitir':True, 'carrinho': carrinho})
 
@@ -2843,9 +2962,13 @@ def atualizar_estoque_geral(data):
 @socketio.on('atualizar_estoque')
 def atualizar_estoque(data):
     carrinho = data.get('carrinho')
+    print('carrinho no atualizar estoque', carrinho)
     usuario = data.get('username')
+    print('usuario no atualizar estoque', usuario)
     itensAlterados = data.get('itensAlterados')
+    print('itensAlterados no atualizar estoque', itensAlterados)
     token_user = data.get('token')
+    print('token_user no atualizar estoque', token_user)
     for i in itensAlterados:
         item = i['item']
         anterior=''
@@ -2883,8 +3006,9 @@ def atualizar__comanda(data):
     comanda = data.get('comanda')
     usuario = data.get('username')
     carrinho = data.get('carrinho')
-    dia = datetime.now(brazil).date()
+    data_brasil_corte_3h()
     token_user = data.get('token')
+    dia = data_brasil_corte_3h()
 
     # ===== helpers iguais à ideia do excluir_pedido =====
     def _to_float(v, default=0.0):
@@ -3340,7 +3464,7 @@ def transferir_para_estoque_carrinho(data):
 def handle_get_cardapio(data, carrinho_param=None):
     print('get_cardapio')
     try:
-        dia = datetime.now(brazil).date()  # valor padrão
+        dia = data_brasil_corte_3h()  # valor padrão
         
         if type(data) == str:
             print('if')
@@ -3384,7 +3508,7 @@ def handle_get_cardapio(data, carrinho_param=None):
             
 
                 dados = db.execute('''
-                    SELECT pedido,id,ordem,nome,extra,opcoes, SUM(quantidade) AS quantidade, SUM(quantidade_paga) as quantidade_paga, SUM(preco) AS preco
+                    SELECT pedido,id,ordem,nome,extra,opcoes, SUM(quantidade) AS quantidade, SUM(quantidade_paga) as quantidade_paga, SUM(preco) AS preco, preco_unitario
                     FROM pedidos WHERE comanda =? AND ordem = ? AND dia = ? AND carrinho = ? GROUP BY pedido, preco_unitario
                 ''', fcomanda, ordem,dia, carrinho)
                 nomes = db.execute(
@@ -3412,19 +3536,22 @@ def handle_get_cardapio(data, carrinho_param=None):
         print("Erro ao calcular preço:", e)
 
 
-
-
 @socketio.on('permitir')
 def permitir(data):
-    #!!
     id = data.get('id')
     carrinho = data.get('carrinho')
+    _register_carrinho_room(carrinho)
     # Corrigido para buscar 'numero', que está vindo do frontend
     numero = data.get('numero')
-    db.execute('UPDATE usuarios SET liberado = ? WHERE id = ?',
-               numero, id)  # Atualiza a coluna 'liberado'
+    db.execute('UPDATE usuarios SET liberado = ? WHERE id = ? AND carrinho = ?',
+               numero, id, carrinho)  # Atualiza a coluna 'liberado'
+    username=db.execute('SELECT username FROM usuarios WHERE id = ? AND carrinho = ?',id, carrinho)[0]['username']
+    print('username no permitir', username)
     users({'emitir':True, 'carrinho': carrinho})
-
+    if numero=='0':
+        print('entrou no if do permitir')
+        emit_for_carrinho('LogOut', {'username':username}, broadcast=True, carrinho=carrinho)
+    
 
 
 @socketio.on('Delete_user')
@@ -3570,6 +3697,7 @@ def _parse_opcoes(obj):
                     if not onome:
                         continue
                     extra = float(o.get("valor_extra") or 0.0)
+                    custo = float(o.get("custo") or 0.0)
                     esgotado = _bool_int(o.get("esgotado"))
 
                     # ingredientes por opcao (se vierem)
@@ -3598,6 +3726,7 @@ def _parse_opcoes(obj):
                     opts_out.append({
                         "nome": onome,
                         "valor_extra": extra,
+                        "custo": custo,
                         "esgotado": esgotado,
                         "ingredientes": ing_out,  # <-- preserva ingredientes por opção
                     })
@@ -3642,7 +3771,9 @@ def _sync_opcoes_rows(id_cardapio: int, item_nome: str, grupos: list, carrinho):
 def adicionarCardapio(data):
     item = (data.get('item') or '').strip()
     preco = data.get('preco')
+    custo = data.get('custo', None)
     categoria = data.get('categoria')
+    id_referencia = data.get('id_referencia', None)
     usuario = data.get('username')
     token_user = data.get('token')
     carrinho = data.get('carrinho')
@@ -3695,8 +3826,8 @@ def adicionarCardapio(data):
     if permission_categoria3:
         print('permitido adicionar porcao')
         db.execute(
-            'INSERT INTO cardapio (item, categoria_id, preco,preco_base, opcoes, ingredientes, carrinho) VALUES (?,?,?,?,?,?,?)',
-            item, categoria_id, float(preco), float(preco), opcoes_json, ingredientes, carrinho
+            'INSERT INTO cardapio (item, categoria_id, preco,preco_base, opcoes, ingredientes, carrinho, custo, id_referencia) VALUES (?,?,?,?,?,?,?,?,?)',
+            item, categoria_id, float(preco), float(preco), opcoes_json, ingredientes, carrinho, custo, id_referencia
         )
     else:
         print('nao permitido adicionar porcao')
@@ -3766,7 +3897,9 @@ def editarCardapio(data):
 
     item = (data.get('item') or '').strip()
     preco = data.get('preco')
+    custo = data.get('custo', None)
     categoria = data.get('categoria')
+    id_referencia = data.get('id_referencia', None)
     novoNome = (data.get('novoNome') or '').strip()
     raw_opcoes = data.get('opcoes')
     carrinho = data.get('carrinho')
@@ -3855,8 +3988,8 @@ def editarCardapio(data):
         ingredientes_json = lista_dicts_para_str(ingredientes_list)
 
         # ====== UPDATE principal no cardápio ======
-        sets = ["preco = ?", "categoria_id = ?"]
-        params = [preco, categoria_id]
+        sets = ["preco = ?", "custo = ?","categoria_id = ?", "id_referencia = ?"]
+        params = [preco, custo, categoria_id, id_referencia]
 
         if opcoes_json is not None:
             sets.append("opcoes = ?")
@@ -4009,7 +4142,7 @@ def getItemCardapio(data):
         emit('respostaGetItemCardapio',{'opcoes':dados}, broadcast=False)
 
 def insertAlteracoesTable(tabela,alteracao,tipo,tela,usuario, carrinho):
-    hoje = datetime.now(brazil).date()
+    hoje = data_brasil_corte_3h()
     horario = datetime.now(pytz.timezone(
         "America/Sao_Paulo")).strftime('%H:%M')
     print(tabela,alteracao,tipo,usuario)
@@ -4025,11 +4158,11 @@ def getAlteracoes(data):
     if type(emitir)!=bool:
         emiti=emitir.get('emitir')
         change=emitir.get('change')
-        hoje = datetime.now(brazil).date() + timedelta(days=int(change))
+        hoje = data_brasil_corte_3h() + timedelta(days=int(change))
         dia_mes = hoje.strftime('%d/%m')
     else:
         emiti = emitir
-        hoje = datetime.now(brazil).date()
+        hoje = data_brasil_corte_3h()
         dia_mes = hoje.strftime('%d/%m')
 
     data=db.execute("SELECT * FROM alteracoes WHERE dia = ? AND carrinho = ?",hoje, carrinho)
@@ -4113,7 +4246,8 @@ def faturamento_range(data):
     pedidosQuantDict = db.execute("""
         SELECT categoria,
                SUM(quantidade) AS quantidade_total,
-               SUM(preco_unitario*NULLIF(quantidade,0))      AS preco_total
+               SUM(preco_unitario*NULLIF(quantidade,0))      AS preco_total,
+               SUM(lucro_unitario*NULLIF(quantidade,0))      AS lucro_total
         FROM pedidos
         WHERE dia BETWEEN ? AND ?
           AND pedido != ? AND carrinho = ?
@@ -4122,7 +4256,10 @@ def faturamento_range(data):
     """, date_from, date_to, 'Comanda Aberta', carrinho)
     print('predidosQuantDict', pedidosQuantDict)
     drink = restante = porcao = 0
+    faturamento_drink = faturamento_restante = faturamento_porcao = 0
     faturamento_previsto = 0
+    lucro_previsto = 0
+    lucro_drink = lucro_restante = lucro_porcao = 0
     for row in pedidosQuantDict:
         cat = row.get('categoria')
         qtd = row.get('quantidade_total') or 0
@@ -4130,13 +4267,17 @@ def faturamento_range(data):
         if cat == '1':
             restante = qtd
             faturamento_restante= preco_categoria
+            lucro_restante= row.get('lucro_total') or 0
         elif cat == '2':
             drink = qtd
             faturamento_drink= preco_categoria
+            lucro_drink= row.get('lucro_total') or 0
         elif cat == '3':
             porcao = qtd
             faturamento_porcao= preco_categoria
+            lucro_porcao= row.get('lucro_total') or 0
         faturamento_previsto += (row.get('preco_total') or 0)
+        lucro_previsto += (row.get('lucro_total') or 0)
 
     pedidos = (drink or 0) + (restante or 0) + (porcao or 0)
 
@@ -4157,12 +4298,16 @@ def faturamento_range(data):
         'dia': periodo_fmt,
         'faturamento': total_recebimentos,
         'faturamento_previsto': faturamento_previsto,
+        'lucro_previsto': lucro_previsto,
         'drink': drink,
         'porcao': porcao,
         "restante": restante,
         "faturamento_drink": faturamento_drink,
         "faturamento_porcao": faturamento_porcao,
         "faturamento_restante": faturamento_restante,
+        "lucro_drink": lucro_drink,
+        "lucro_porcao": lucro_porcao,
+        "lucro_restante": lucro_restante,
         "pedidos": pedidos,
         "caixinha": caixinha,
         "dezporcento": dezporcento,
@@ -4188,7 +4333,7 @@ def pagar_itens(data):
     aplicarDez = data.get('aplicarDez', False)
     carrinho = data.get('carrinho')
     ids_quant = []
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     preco = 0
     for row in itens:
         quantidade = float(row.get('quantidade'))
@@ -4197,21 +4342,20 @@ def pagar_itens(data):
         id_usar = None
         preco_dict = None
         for id in ids:
-            if id['quantidade'] - id['quantidade_paga'] - quantidade >= 0:
+            if id['quantidade'] - id['quantidade_paga'] >= 1:
                 id_usar = id['id']
                 preco_dict = id['preco_unitario']
                 break
         if id_usar:
             db.execute('''
                     UPDATE pedidos
-                    SET quantidade_paga = quantidade_paga + ?,
-                        preco = preco_unitario * NULLIF(quantidade - (quantidade_paga + ?), 0)
+                    SET quantidade_paga = quantidade_paga + ?
                     WHERE comanda = ?
                     AND id = ?
                     AND ordem = ?
                     AND dia = ?
                     AND carrinho = ?
-                ''', quantidade, quantidade, comanda, id_usar, 0, dia, carrinho)
+                ''', quantidade, comanda, id_usar, 0, dia, carrinho)
 
             if preco_dict:
                 preco += float(preco_dict)*quantidade
@@ -4251,10 +4395,10 @@ def buscar_menu_data(payload):
             '''
             SELECT id, item, preco,preco_base, categoria_id, image, opcoes, subcategoria
             FROM cardapio
-            WHERE usable_on_qr = ?
+            WHERE usable_on_qr = ? and carrinho = ?
             ORDER BY item ASC
             ''',
-            1
+            1, carrinho
         )
 
 
@@ -4319,7 +4463,7 @@ def enviar_pedido_on_qr(data,comanda,token,carrinho='NossoPoint'):
     user_number = cliente[0].get('numero') if cliente else None
     if not user_number:
         user_number = 'Desconhecido'
-    dia = datetime.now(brazil).date()
+    dia = data_brasil_corte_3h()
     for row in data:
         subcategoria = row.get('subcategoria')
         pedido_dict = db.execute('SELECT item,preco FROM cardapio WHERE id = ?',row.get('id'))
@@ -4362,7 +4506,7 @@ def savePromotion(data):
         tipo = data.get('type')
         emitirBroadcast = data.get('emitirBroadcast', True)
         carrinho = data.get('carrinho')
-        status = 'active' if promotionData['endDate'] > datetime.now(brazil).date().strftime('%Y-%m-%d') else 'expired'
+        status = 'active' if promotionData['endDate'] > data_brasil_corte_3h().strftime('%Y-%m-%d') else 'expired'
 
         if tipo == 'create':
             db.execute('INSERT INTO promotions (name, products, type, value, endDate,status, carrinho) VALUES (?,?,?,?,?,?,?)',promotionData['name'],json.dumps(promotionData['products']),promotionData['type'],float(promotionData['value']),promotionData['endDate'],status, carrinho)
@@ -4516,7 +4660,6 @@ def pedido_detalhes(order_id: str, access_token: str):
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
-
     # Detalhes do pedido
     url_order = f"https://merchant-api.ifood.com.br/order/v1.0/orders/{order_id}"
     resp = requests.get(url_order, headers=headers, timeout=20)
@@ -4668,6 +4811,7 @@ def ensure_schema():
     Garante colunas em `opcoes` e cria auditoria (sem DEFAULT(datetime('now'))).
     Backfill dos slugs a partir de nome_grupo/opcao.
     """
+    #analisar
     colnames = _get_column_names("opcoes")
 
     # Estas três já existem no seu schema, mas mantemos defensivo:
@@ -5236,4 +5380,4 @@ def opcoes_group_props_bulk():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
