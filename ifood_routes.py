@@ -9,12 +9,29 @@ import time
 import secrets
 import logging
 import threading
+import shutil
 import json
 from datetime import datetime, timezone
 from cs50 import SQL
+import os
 
-# ajuste o caminho do seu banco:
-db = SQL("sqlite:///data/dados.db")
+# Arquivo dentro do projeto (commitado no Git)
+# Se o seu .db está em data/dados.db no projeto, use isso:
+DB_SOURCE_PATH = os.path.join(os.path.dirname(__file__), "data", "dados.db")
+
+# Caminho “oficial” dentro do container (Render)
+DATABASE_PATH = "/data/dados.db"
+
+# Se ainda não existir o /data/dados.db, copia do projeto
+os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+if not os.path.exists(DATABASE_PATH):
+    if not os.path.exists(DB_SOURCE_PATH):
+        raise RuntimeError(f"Banco de origem não encontrado em {DB_SOURCE_PATH}")
+    shutil.copy(DB_SOURCE_PATH, DATABASE_PATH)
+    print(f"Copiado {DB_SOURCE_PATH} -> {DATABASE_PATH}")
+
+# Agora sim, abre o banco
+db = SQL("sqlite:///" + DATABASE_PATH)
 
 
 import requests
