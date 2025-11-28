@@ -34,7 +34,7 @@ from ifood_routes import ifood_bp, start_ifood_polling
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = True
+manipule = False
 if manipule:
     subprocess.run(['python','manipule6.py'])
 
