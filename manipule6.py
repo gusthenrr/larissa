@@ -1,90 +1,45 @@
 from cs50 import SQL
 import shutil
 import os
-from datetime import datetime
 
-# caminho do banco
-DB_PATH = "sqlite:///data/dados.db"
-RAW_PATH = "/data/dados.db"
+# caminho de origem (no projeto)
+DB_SOURCE_PATH = "data/dados.db"  # ajuste se for outro caminho
 
-# 1. backup rápido antes de mexer
-if os.path.exists(RAW_PATH):
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = f"/data/dados.backup.{ts}.db"
-    shutil.copyfile(RAW_PATH, backup_path)
-    print(f"[OK] Backup criado em {backup_path}")
-
+# caminho de destino (por exemplo, em produção / Docker)
 DATABASE_PATH = "/data/dados.db"
+
+# Se ainda não existir o /data/dados.db, copia do arquivo local
 if not os.path.exists(DATABASE_PATH):
-    shutil.copy("dados.db", DATABASE_PATH)
+    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    shutil.copy(DB_SOURCE_PATH, DATABASE_PATH)
+    print(f"Copiado {DB_SOURCE_PATH} -> {DATABASE_PATH}")
+
+# Abre o banco usando cs50.SQL
 db = SQL("sqlite:///" + DATABASE_PATH)
 
-try:
-    print("[INFO] Iniciando migração da tabela estoque_geral...")
-    db.execute("PRAGMA foreign_keys = OFF;")
-    db.execute("BEGIN;")
 
-    # Contar linhas da tabela original
-    row = db.execute("SELECT COUNT(*) AS n FROM estoque_geral;")[0]
-    n_orig = row["n"]
-    print(f"[INFO] Linhas originais: {n_orig}")
+def adicionar_id_referencia():
+    # 1) Verificar se a coluna id_referencia já existe
+    info = db.execute("PRAGMA table_info(cardapio);")
+    # Em cs50.SQL, cada linha é um dict: { 'cid': ..., 'name': ..., 'type': ... }
+    colunas = [linha["name"] for linha in info]
 
-    # 1) Renomear tabela antiga
-    db.execute("ALTER TABLE estoque_geral RENAME TO estoque_geral_old;")
+    if "id_referencia" not in colunas:
+        print("Adicionando coluna id_referencia na tabela cardapio...")
+        db.execute("ALTER TABLE cardapio ADD COLUMN id_referencia INTEGER;")
+    else:
+        print("Coluna id_referencia já existe, seguindo para atualização dos dados...")
 
-    # 2) Criar nova tabela com id autoincrement
+    # 2) Copiar os valores de id para id_referencia (somente onde está NULL)
+    print("Atualizando id_referencia com os valores de id...")
     db.execute("""
-        CREATE TABLE estoque_geral (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item TEXT,
-            quantidade INTEGER,
-            estoque_ideal INTEGER,
-            carrinho TEXT,
-            unidade TEXT,
-            quantidade_total REAL,
-            quantidade_por_unidade REAL,
-            usado_em_cardapio INTEGER []
-        );
+        UPDATE cardapio
+        SET id_referencia = id
+        WHERE id_referencia IS NULL;
     """)
 
-    # 3) Copiar dados SEM o ID (SQLite gera ID novo)
-    db.execute("""
-        INSERT INTO estoque_geral (
-            item, quantidade, estoque_ideal, carrinho, unidade
-        )
-        SELECT
-            item, quantidade, estoque_ideal, carrinho, unidade
-        FROM estoque_geral_old;
-    """)
-
-    # 4) Deletar tabela antiga
-    db.execute("DROP TABLE estoque_geral_old;")
-
-    # 5) Recriar índice
-    db.execute("""
-        CREATE INDEX IF NOT EXISTS ix_estoque_geral_item
-        ON estoque_geral(item);
-    """)
-
-    # 6) Conferir contagem
-    row = db.execute("SELECT COUNT(*) AS n FROM estoque_geral;")[0]
-    n_new = row["n"]
-
-    if n_new != n_orig:
-        raise RuntimeError(f"Contagem divergente: original={n_orig}, novo={n_new}")
-
-    db.execute("COMMIT;")
-    print("[OK] Migração concluída com sucesso.")
-    print(f"[OK] Linhas migradas: {n_new}")
-    print("[OK] IDs antigos descartados. IDs novos criados automaticamente.")
-
-except Exception as e:
-    print("[ERRO] Falha na migração. Revertendo alterações.")
-    print("Motivo:", e)
-    db.execute("ROLLBACK;")
-
-finally:
-    db.execute("PRAGMA foreign_keys = ON;")
-    print("[INFO] PRAGMA foreign_keys restaurado.")
+    print("Concluído.")
 
 
+if __name__ == "__main__":
+    adicionar_id_referencia()
