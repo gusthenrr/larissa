@@ -3777,13 +3777,8 @@ def adicionarCardapio(data):
     usuario = data.get('username')
     token_user = data.get('token')
     carrinho = data.get('carrinho')
-    if db.execute('SELECT carrinho FROM carrinhos WHERE empresas = ?', carrinho):
-        permission_categoria3=False
-    else:
-        permission_categoria3=True
-    # --- INGREDIENTES (nível do item) ---
     ingredientes_list  = data.get('ingredientes', [])
-    for ingrediente in ingredientes_list:
+    for ingrediente in ingredientes_list:   
         nome_ingrediente = ingrediente.get('nome')
         print('ingediente (criar): ', nome_ingrediente)
         estoque_id=ingrediente.get('estoque_id')
@@ -3822,17 +3817,10 @@ def adicionarCardapio(data):
     _process_opcoes_ingredients_inplace(grupos, carrinho)
     opcoes_json = json.dumps(grupos, ensure_ascii=False)
 
-    # INSERT cardapio + pegar id
-    if permission_categoria3:
-        print('permitido adicionar porcao')
-        db.execute(
-            'INSERT INTO cardapio (item, categoria_id, preco,preco_base, opcoes, ingredientes, carrinho, custo, id_referencia) VALUES (?,?,?,?,?,?,?,?,?)',
-            item, categoria_id, float(preco), float(preco), opcoes_json, ingredientes, carrinho, custo, id_referencia
-        )
-    else:
-        print('nao permitido adicionar porcao')
-        emit('cardapioResponse', {'ok': False,'mensagem': 'Permissao negada para adicionar porcao'})
-        return
+    db.execute(
+        'INSERT INTO cardapio (item, categoria_id, preco,preco_base, opcoes, ingredientes, carrinho, custo, id_referencia) VALUES (?,?,?,?,?,?,?,?,?)',
+        item, categoria_id, float(preco), float(preco), opcoes_json, ingredientes, carrinho, custo, id_referencia
+    )
     new_id = db.execute("SELECT last_insert_rowid() AS id")[0]["id"]
     for i in ingredientes_list:
         add_to_usado_em_cardapio_ids(i['id'], new_id, carrinho, i['estoque_id'])
@@ -3929,18 +3917,7 @@ def editarCardapio(data):
     # pega "antes" para log
     dadoAntigo = db.execute('SELECT * FROM cardapio WHERE item = ? AND carrinho = ?', item, carrinho)
     dadoAntigo = dadoAntigo[0] if dadoAntigo else {}
-
-    # opcoes: saneia só se veio algo (senão mantém como está)
-    carrinho2=db.execute('SELECT empresas FROM carrinhos WHERE empresas = ?', carrinho)
     categoria_antiga = dadoAntigo.get('categoria_id')
-    if (categoria_antiga == 3 or categoria_id == 3) and carrinho2:
-        permission_categoria3=False
-    else:
-        permission_categoria3=True
-    if not permission_categoria3:
-        emit('cardapioResponse', {'ok': False,'mensagem': 'Permissao negada para editar para porcao'})
-        return
-
     grupos = None
     opcoes_json = None
     if raw_opcoes is not None:
