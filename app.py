@@ -34,7 +34,7 @@ from ifood_routes import ifood_bp, start_ifood_polling
 
 from werkzeug.utils import secure_filename
 var = True
-manipule = False
+manipule = True
 if manipule:
     subprocess.run(['python','manipule6.py'])
 
@@ -176,118 +176,251 @@ def pegar_pagamentos_comanda():
         pagamentos = []
     return {'pagamentos': pagamentos}
 
-@socketio.on('excluir_pedido')
-def excluir_pedido(data):
 
+def _deduzir_estoque_por_ingrediente_devolver(
+    id_ingrediente: str,
+    unidade: str,
+    quantidade_necessaria: float,
+    carrinho: str,
+    estoque_id: int,
+):
     def _to_float(v, default=0.0):
-            try:
-                return float(v)
-            except Exception:
-                return default
+        try:
+            return float(v)
+        except Exception:
+            return default
 
-            
-    def _deduzir_estoque_por_ingrediente(id_ingrediente: str, unidade: str, quantidade_necessaria: float, carrinho: str, estoque_id: int):
-            if not id_ingrediente:
-                return
-            if estoque_id == '1':
-                estoque='estoque'
-            else:
-                estoque='estoque_geral'
-            print('estoque',estoque)
-            row = db.execute(
-                f'SELECT quantidade, quantidade_total, quantidade_por_unidade FROM {estoque} WHERE id = ? AND carrinho = ?',
-                id_ingrediente, carrinho
+    if not id_ingrediente:
+        return
+
+    # normaliza estoque_id (pode vir int 1)
+    estoque_id_norm = str(estoque_id).strip() if estoque_id is not None else "1"
+    principal = (estoque_id_norm == "1")
+
+    if principal:
+        row = db.execute(
+            "SELECT quantidade, quantidade_total, quantidade_por_unidade "
+            "FROM estoque WHERE id = ? AND carrinho = ?",
+            id_ingrediente, carrinho
+        )
+        if not row:
+            return
+        quantidade_atual_unid  = _to_float(row[0].get("quantidade"), 0.0)
+        quantidade_atual_total = _to_float(row[0].get("quantidade_total"), 0.0)
+    else:
+        row = db.execute(
+            "SELECT quantidade_reserva, quantidade_total_reserva, quantidade_por_unidade "
+            "FROM estoque WHERE id = ? AND carrinho = ?",
+            id_ingrediente, carrinho
+        )
+        if not row:
+            return
+        quantidade_atual_unid  = _to_float(row[0].get("quantidade_reserva"), 0.0)
+        quantidade_atual_total = _to_float(row[0].get("quantidade_total_reserva"), 0.0)
+
+    qpu = _to_float(row[0].get("quantidade_por_unidade", 1), 1.0)
+    if qpu <= 0:
+        qpu = 1.0
+
+    u = (unidade or "").strip().lower()
+    qn = _to_float(quantidade_necessaria, 0.0)
+
+    # devolver = somar
+    if u == "unidade(s)":
+        nova_qtd_unid  = quantidade_atual_unid + qn
+        nova_qtd_total = quantidade_atual_total + (qn * qpu)
+        if nova_qtd_unid < 0:
+            nova_qtd_unid = 0
+        if nova_qtd_total < 0:
+            nova_qtd_total = 0
+
+        if principal:
+            db.execute(
+                "UPDATE estoque SET quantidade = ?, quantidade_total = ? "
+                "WHERE id = ? AND carrinho = ?",
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
             )
-            print('row', row)
-            if not row:
-                # Se não existe no estoque, nada a fazer aqui
-                return
-            print('Quantidade unid:', row[0]['quantidade'])
-            quantidade_atual_unid = _to_float(row[0]['quantidade'], 0.0)
-            quantidade_atual_total = _to_float(row[0]['quantidade_total'], 0.0)
-            qpu = _to_float(row[0].get('quantidade_por_unidade', 1), 1.0)
+        else:
+            db.execute(
+                "UPDATE estoque SET quantidade_reserva = ?, quantidade_total_reserva = ? "
+                "WHERE id = ? AND carrinho = ?",
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+            )
+    else:
+        nova_qtd_total = quantidade_atual_total + qn
+        if nova_qtd_total < 0:
+            nova_qtd_total = 0
 
-            if (unidade or '').strip() == 'unidade(s)':
-                print('deduzindo por unidade interna')
-                nova_qtd_unid = quantidade_atual_unid + _to_float(quantidade_necessaria, 0.0)
-                nova_qtd_total = quantidade_atual_total + (_to_float(quantidade_necessaria, 0.0)* qpu)
-                if nova_qtd_unid < 0:
-                    nova_qtd_unid = 0
-                if nova_qtd_total < 0:
-                    nova_qtd_total = 0
-                # mantém compat: espelha em quantidade_total como já era feito
-                db.execute(
-                    f'UPDATE {estoque} SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
-                    nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-                )
-            else:
-                nova_qtd_total = quantidade_atual_total + _to_float(quantidade_necessaria, 0.0)
-                if nova_qtd_total < 0:
-                    nova_qtd_total = 0
-                # quantidade (em "unidades" internas) arredondada pelo passo quantidade_por_unidade
-                nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
-                db.execute(
-                    f'UPDATE {estoque} SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
-                    nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-                )
-            # Atualiza painel/assinantes
-            getEstoque({'emitir': True, 'carrinho': carrinho})
-            getEstoqueGeral({'emitir': True, 'carrinho': carrinho})
-    
+        # quantidade (unidades internas) acompanha o total
+        nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
+
+        if principal:
+            db.execute(
+                "UPDATE estoque SET quantidade = ?, quantidade_total = ? "
+                "WHERE id = ? AND carrinho = ?",
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+            )
+        else:
+            db.execute(
+                "UPDATE estoque SET quantidade_reserva = ?, quantidade_total_reserva = ? "
+                "WHERE id = ? AND carrinho = ?",
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+            )
+
+    # Atualiza painel/assinantes (se quiser reduzir emissões, pode remover daqui e deixar só no final do excluir)
+    getEstoque({"emitir": True, "carrinho": carrinho})
+    getEstoqueGeral({"emitir": True, "carrinho": carrinho})
+
+
+@socketio.on("excluir_pedido")
+def excluir_pedido(data):
+    def _to_float(v, default=0.0):
+        try:
+            return float(v)
+        except Exception:
+            return default
+
+    def _iter_ingredientes_opcoes(opcoes):
+        """
+        Retorna ingredientes das opções selecionadas.
+        Suporta grupos com 'options' ou 'opcoes'.
+        Ignora opt com selecionado == False.
+        """
+        if not isinstance(opcoes, list):
+            return
+        for grupo in opcoes:
+            if not isinstance(grupo, dict):
+                continue
+            options = grupo.get("options") or grupo.get("opcoes") or []
+            if not isinstance(options, list):
+                continue
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                if opt.get("selecionado") is False:
+                    continue
+                ing_list = opt.get("ingredientes") or []
+                if not isinstance(ing_list, list):
+                    continue
+                for ing in ing_list:
+                    if isinstance(ing, dict) and ing.get("id"):
+                        yield ing
 
     try:
-        pedido_id = data.get('id')
-        carrinho = data.get('carrinho')
-        comanda = data.get('comanda')
-        usuario = data.get('usuario')
-        devolver= data.get('devolver', True)
-        item_data=db.execute('SELECT item, ingredientes FROM cardapio WHERE item = (SELECT pedido FROM pedidos WHERE id = ?)', pedido_id)
-        item = item_data[0]['item']
+        pedido_id = data.get("id")
+        carrinho  = data.get("carrinho")
+        comanda   = data.get("comanda")
+        usuario   = data.get("usuario")
+        devolver  = data.get("devolver", True)
+
+        if not pedido_id or not carrinho:
+            return
+
+        # pega pedido (nome), quantidade e opcoes do pedido
+        pedido_row = db.execute(
+            "SELECT pedido, quantidade, opcoes FROM pedidos WHERE id = ? AND carrinho = ? LIMIT 1",
+            pedido_id, carrinho
+        )
+        if not pedido_row:
+            return
+
+        item = pedido_row[0].get("pedido")
+        quantidade = _to_float(pedido_row[0].get("quantidade"), 0.0)
+
+        # pega ingredientes do cardápio (se existir)
+        item_data = db.execute(
+            "SELECT ingredientes FROM cardapio WHERE item = ? AND carrinho = ? LIMIT 1",
+            item, carrinho
+        )
+        ingredientes_format = item_data[0].get("ingredientes") if item_data else None
+
+        opcoes_format = pedido_row[0].get("opcoes")
+        opcoes = str_para_lista_de_dicts(opcoes_format) if opcoes_format else []
+        ingredientes_item = str_para_lista_de_dicts(ingredientes_format) if ingredientes_format else []
+
+        # detecta se existe ingrediente nas opções
+        tem_ing_opcoes = any(True for _ in _iter_ingredientes_opcoes(opcoes))
+
         if devolver:
-            ingredientes_format=item_data[0]['ingredientes']
-            dados_pedidos_=db.execute('SELECT quantidade, opcoes FROM pedidos WHERE id = ?', pedido_id)[0]
-            quantidade=dados_pedidos_['quantidade']
-            opcoes_format=dados_pedidos_['opcoes']
-            opcoes =str_para_lista_de_dicts(opcoes_format) if opcoes_format else []
-            ingredientes=str_para_lista_de_dicts(ingredientes_format) if ingredientes_format else []
-            if ingredientes == []:
-                quantidade_estoque=db.execute('SELECT quantidade FROM estoque WHERE item = ? and carrinho=?', item, carrinho)
-                if quantidade_estoque:
-                    nova_quantidade=quantidade_estoque[0]['quantidade'] + quantidade
-                    db.execute('UPDATE estoque SET quantidade = ? WHERE item = ? and carrinho = ?', nova_quantidade, item, carrinho)
-            else:
-                for ingrediente in ingredientes:
-                    id_ingrediente = ingrediente.get('id')
-                    unidade        = ingrediente.get('unidade')
-                    qtd_por_item   = _to_float(ingrediente.get('quantidade') or 0, 0.0)
-                    qtd_total      = qtd_por_item * quantidade
-                    estoque_id     = ingrediente.get('estoque_id')
-                    _deduzir_estoque_por_ingrediente(id_ingrediente, unidade, qtd_total, carrinho, estoque_id)
-            if opcoes:
-                for grupo in opcoes:
-                    options = grupo.get('options') or []
-                    for opt in options:
-                        ingredientes_opt = opt.get('ingredientes') or []
-                        for ingrediente in ingredientes_opt:
-                            id_ingrediente = ingrediente.get('id')
-                            unidade        = ingrediente.get('unidade')
-                            qtd_por_item   = _to_float(ingrediente.get('quantidade') or 0, 0.0)
-                            qtd_total      = qtd_por_item * quantidade
-                            estoque_id     = ingrediente.get('estoque_id')
-                            _deduzir_estoque_por_ingrediente(id_ingrediente, unidade, qtd_total, carrinho, estoque_id)
+            # 1) devolve ingredientes do item (se tiver)
+            if isinstance(ingredientes_item, list) and ingredientes_item:
+                for ingrediente in ingredientes_item:
+                    if not isinstance(ingrediente, dict):
+                        continue
+                    id_ingrediente = ingrediente.get("id")
+                    if not id_ingrediente:
+                        continue
+                    unidade      = ingrediente.get("unidade")
+                    qtd_por_item = _to_float(ingrediente.get("quantidade") or 0, 0.0)
+                    qtd_total    = qtd_por_item * quantidade
+                    estoque_id   = ingrediente.get("estoque_id")
+                    _deduzir_estoque_por_ingrediente_devolver(
+                        id_ingrediente, unidade, qtd_total, carrinho, estoque_id
+                    )
 
+            # 2) devolve ingredientes das opções (mesmo que o item não tenha ingredientes)
+            if tem_ing_opcoes:
+                for ing in _iter_ingredientes_opcoes(opcoes):
+                    id_ingrediente = ing.get("id")
+                    if not id_ingrediente:
+                        continue
+                    unidade      = ing.get("unidade")
+                    qtd_por_item = _to_float(ing.get("quantidade") or 0, 0.0)
+                    qtd_total    = qtd_por_item * quantidade
+                    estoque_id   = ing.get("estoque_id")
+                    _deduzir_estoque_por_ingrediente_devolver(
+                        id_ingrediente, unidade, qtd_total, carrinho, estoque_id
+                    )
 
-        db.execute('DELETE FROM pedidos WHERE id = ?', pedido_id)
-        
+            # 3) se NÃO tem ingredientes no item e NÃO tem ingredientes nas opções:
+            #    então devolve o próprio item no estoque (restante)
+            if (not ingredientes_item) and (not tem_ing_opcoes):
+                row_est = db.execute(
+                    "SELECT quantidade, quantidade_total, quantidade_por_unidade "
+                    "FROM estoque WHERE item = ? AND carrinho = ? LIMIT 1",
+                    item, carrinho
+                )
+                if row_est:
+                    qtd_atual = _to_float(row_est[0].get("quantidade"), 0.0)
+                    tot_atual = _to_float(row_est[0].get("quantidade_total"), 0.0)
+                    qpu = _to_float(row_est[0].get("quantidade_por_unidade", 1), 1.0)
+                    if qpu <= 0:
+                        qpu = 1.0
+
+                    nova_qtd = qtd_atual + quantidade
+                    nova_tot = tot_atual + (quantidade * qpu)
+
+                    if nova_qtd < 0:
+                        nova_qtd = 0
+                    if nova_tot < 0:
+                        nova_tot = 0
+
+                    db.execute(
+                        "UPDATE estoque SET quantidade = ?, quantidade_total = ? "
+                        "WHERE item = ? AND carrinho = ?",
+                        nova_qtd, nova_tot, item, carrinho
+                    )
+
+        db.execute("DELETE FROM pedidos WHERE id = ? AND carrinho = ?", pedido_id, carrinho)
+
     except Exception as e:
-        print('Erro ao excluir pedido:', e)
-    insertAlteracoesTableSql('Pedidos', f'Pedido id:{pedido_id}\nPedido: {item}\nComanda: {comanda}', 'Removeu','Tela Pedidos', usuario,carrinho)
-    getPedidos({'emitir': True, 'carrinho': carrinho})
-    getComandas({'emitir': True, 'carrinho': carrinho})
-    getPedidosCC({'emitir': True, 'carrinho': carrinho})
-    getEstoque({'emitir': True, 'carrinho': carrinho})
-    getEstoqueGeral({'emitir': True, 'carrinho': carrinho})
-    handle_get_cardapio(data.get('comanda'), carrinho)
+        print("Erro ao excluir pedido:", e)
+
+    insertAlteracoesTableSql(
+        "Pedidos",
+        f"Pedido id:{pedido_id}\nPedido: {item}\nComanda: {comanda}",
+        "Removeu",
+        "Tela Pedidos",
+        usuario,
+        carrinho,
+    )
+    getPedidos({"emitir": True, "carrinho": carrinho})
+    getComandas({"emitir": True, "carrinho": carrinho})
+    getPedidosCC({"emitir": True, "carrinho": carrinho})
+    getEstoque({"emitir": True, "carrinho": carrinho})
+    getEstoqueGeral({"emitir": True, "carrinho": carrinho})
+    handle_get_cardapio(data.get("comanda"), carrinho)
+
     
 @app.route('/excluir_pagamento', methods=['POST'])
 def excluir_pagamento():
@@ -629,16 +762,16 @@ def lista_dicts_para_str(dados, pretty=False):
     # compacto
     return json.dumps(dados, ensure_ascii=False, separators=(",", ":"), default=str)
 
-def get_usado_em_cardapio_ids(estoque_id, carrinho, estoque):
+def get_usado_em_cardapio_ids(estoque_id, carrinho):
     """
     Pega a lista atual de IDs do campo usado_em_cardapio_id.
     Retorna uma lista de inteiros.
     """
-    result = db.execute(f'SELECT usado_em_cardapio_id FROM {estoque} WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
+    result = db.execute(f'SELECT usado_em_cardapio FROM estoque WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
     if not result:
         return []
     
-    current_value = result[0]['usado_em_cardapio_id']
+    current_value = result[0]['usado_em_cardapio']
     if current_value is None:
         return []
     
@@ -659,11 +792,11 @@ def get_usado_em_cardapio_ids(estoque_id, carrinho, estoque):
     
     return []
 
-def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque):
+def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
     """
     Adiciona um ID do cardápio à lista de usado_em_cardapio_id sem substituir os existentes.
     """
-    current_ids = get_usado_em_cardapio_ids(estoque_id, carrinho, estoque)
+    current_ids = get_usado_em_cardapio_ids(estoque_id, carrinho)
     
     # Evita duplicatas
     if cardapio_id not in current_ids:
@@ -671,9 +804,9 @@ def add_to_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque):
     
     # Converte para JSON e salva
     ids_json = json.dumps(current_ids)
-    db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
+    db.execute(f'UPDATE estoque SET usado_em_cardapio = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
 
-def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque):
+def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho):
     """
     Remove um ID do cardápio da lista de usado_em_cardapio_id.
     """
@@ -685,11 +818,11 @@ def remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, estoque
     
     # Se ficou vazio, salva NULL
     if not current_ids:
-        db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = NULL WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
+        db.execute(f'UPDATE estoque SET usado_em_cardapio = NULL WHERE id = ? AND carrinho = ?', estoque_id, carrinho)
     else:
         # Converte para JSON e salva
         ids_json = json.dumps(current_ids)
-        db.execute(f'UPDATE {estoque} SET usado_em_cardapio_id = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
+        db.execute(f'UPDATE estoque SET usado_em_cardapio = ? WHERE id = ? AND carrinho = ?', ids_json, estoque_id, carrinho)
 
 @app.route('/verificar_quantidade', methods=['POST'])
 def verif_quantidade():
@@ -780,22 +913,32 @@ def verif_quantidade():
     # Demais unidades -> comparar com estoque.quantidade_total
     for ing_id, info in requerimentos.items():
         if info['estoque_id']=='1':
-            estoque='estoque'
-        else:
-            estoque='estoque_geral'
-        row = db.execute(
-            f'SELECT item, quantidade, estoque_ideal, quantidade_total FROM {estoque} WHERE id = ? AND carrinho = ?',
+            row = db.execute(
+            f'SELECT item, quantidade, estoque_ideal, quantidade_total FROM estoque WHERE id = ? AND carrinho = ?',
             ing_id, carrinho
-        )
+            )
+            if row:
+                estoque = row[0]
+                atual_unidades = _to_float(estoque.get('quantidade'), 0.0)
+                atual_total = _to_float(estoque.get('quantidade_total'), 0.0)
+                ideal = _to_float(estoque.get('estoque_ideal'), 0.0)
+        else:
+            row = db.execute(
+            f'SELECT item, quantidade_reserva, estoque_ideal_reserva, quantidade_total_reserva FROM estoque WHERE id = ? AND carrinho = ?',
+            ing_id, carrinho
+            )
+            if row:
+                estoque = row[0]
+                atual_unidades = _to_float(estoque.get('quantidade_reserva'), 0.0)
+                atual_total = _to_float(estoque.get('quantidade_total_reserva'), 0.0)
+                ideal = _to_float(estoque.get('estoque_ideal_reserva'), 0.0)
+        
         if not row:
             # Se o ingrediente não estiver no estoque, consideramos insuficiente
             print(f'estoque não encontrado para ingrediente id={ing_id}')
             return {'erro': False, 'quantidade': 0}
 
-        estoque = row[0]
-        atual_unidades = _to_float(estoque.get('quantidade'), 0.0)
-        atual_total = _to_float(estoque.get('quantidade_total'), 0.0)
-        ideal = _to_float(estoque.get('estoque_ideal'), 0.0)
+        
 
         if info['is_unit']:
             atual = atual_unidades
@@ -1063,7 +1206,7 @@ def getEstoqueGeral(data):
     emitirBroadcast=data.get('emitir')
     carrinho=data.get('carrinho')
     _register_carrinho_room(carrinho)
-    dataEstoqueGeral=db.execute('SELECT * FROM estoque_geral WHERE carrinho = ? ORDER BY item', carrinho)
+    dataEstoqueGeral=db.execute('SELECT id,item,quantidade_reserva AS quantidade, quantidade AS quantidade_local, estoque_ideal_reserva AS estoque_ideal, carrinho, unidade, quantidade_total_reserva,quantidade_por_unidade,usado_em_cardapio FROM estoque WHERE carrinho = ? ORDER BY item', carrinho)
     if dataEstoqueGeral:
         emit_for_carrinho('respostaEstoqueGeral', {'dataEstoqueGeral': dataEstoqueGeral}, broadcast=emitirBroadcast, carrinho=carrinho)
 
@@ -1134,73 +1277,74 @@ def editEstoque(data):
     tipo = data.get('tipo')
     item = data.get('item')
     novoNome = data.get('novoNome')
-    quantidade = data.get('quantidade')
-    estoque_ideal = data.get('estoqueIdeal')
+    quantidade = data.get('quantidade', None)
+    estoque_ideal = data.get('estoqueIdeal',None)
     unidade = data.get('unidade')
     quantidade_por_unidade = data.get('quantidade_por_unidade')
-    quantidade_total = data.get('quantidade_total')
-    estoque = data.get('estoque')
+    quantidade_total = data.get('quantidade_total',None)
+    quantidade_reserva = data.get('quantidade_reserva',None)
+    quantidade_total_reserva = data.get('quantidade_total_reserva',None)
+    estoque_ideal_reserva = data.get('estoque_ideal_reserva',None)
+
     usuario = data.get('username')
     token_user = data.get('token')
-    mudar_os_dois = data.get('mudar_os_dois')
     print("item", tipo)
     print("item", item)
     print("item", quantidade)
     print("item", estoque_ideal)
-    print("estoque", estoque)
     print("unidade", unidade)
     print("quantidade_por_unidade", quantidade_por_unidade)
     print("quantidade_total", quantidade_total)
+
+
     alteracao = f'{item}'
-    if not item: emit(f'{estoque}Alterado', {'erro':'Item nao identificado'})
+    if not item: 
+        emit('estoqueAlterado', {'erro':'Item nao identificado'})
+        return
     if tipo == 'Adicionar':
-        existe=db.execute(f'SELECT item FROM {estoque} WHERE item = ? AND carrinho = ?',item, carrinho)
+        existe=db.execute(f'SELECT item FROM estoque WHERE item = ? AND carrinho = ?',item, carrinho)
         if existe:
-            emit(f'{estoque}Alterado',{'erro':'Nome Igual'})
+            emit('estoqueAlterado',{'erro':'Nome Igual'})
             return
         tipo = 'Adicionou'
         if estoque_ideal:
             alteracao+=f' com estoque ideal de {estoque_ideal}'
         if unidade:
             alteracao+=f' unidade: {unidade}'
-        print("Entrou no adicionar")                                            
-        if db.execute(f'SELECT item FROM {estoque} WHERE item = ? AND carrinho = ?',item, carrinho): emit(f'{estoque}Alterado',{'erro':'Nome Igual'})
-        db.execute(f"INSERT INTO {estoque} (item,quantidade,estoque_ideal,unidade,quantidade_por_unidade,quantidade_total,carrinho) VALUES (?,?,?,?,?,?,?)",
-                   item,quantidade,estoque_ideal,unidade,quantidade_por_unidade,quantidade_total,carrinho)
-        if mudar_os_dois:
-            alteracao+=' em ambos os estoques'
-            estoque_sec = 'estoque' if estoque=='estoque_geral' else 'estoque_geral'
-            if not db.execute(f'SELECT item FROM {estoque_sec} WHERE item = ? AND carrinho = ?',item, carrinho): 
-                db.execute(f"INSERT INTO {estoque_sec} (item,quantidade,estoque_ideal,unidade,quantidade_por_unidade,quantidade_total,carrinho) VALUES (?,?,?,?,?,?,?)",
-                          item,0,0,unidade,quantidade_por_unidade,0,carrinho)
+        if quantidade_por_unidade:
+            alteracao+=f', quantidade por unidade: {quantidade_por_unidade}'
+        if estoque_ideal_reserva:
+            alteracao+=f', estoque ideal de reserva: {estoque_ideal_reserva}'
+        print("Entrou no adicionar") 
+
+        db.execute(f"INSERT INTO estoque (item,quantidade,estoque_ideal,unidade,quantidade_por_unidade,quantidade_total,carrinho, quantidade_reserva, quantidade_total_reserva, estoque_ideal_reserva) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                   item,quantidade,estoque_ideal,unidade,quantidade_por_unidade,quantidade_total,carrinho, quantidade_reserva, quantidade_total_reserva, estoque_ideal_reserva)
 
     elif tipo == 'Remover':
         tipo='Removeu'
-        db.execute(f"DELETE FROM {estoque} WHERE item=? AND carrinho = ?",item, carrinho)
-        if mudar_os_dois:
-            alteracao+=' de ambos os estoques'
-            estoque_sec = 'estoque' if estoque=='estoque_geral' else 'estoque_geral'
-            db.execute(f"DELETE FROM {estoque_sec} WHERE item=? AND carrinho = ?",item, carrinho)
+        db.execute(f"DELETE FROM estoque WHERE item=? AND carrinho = ?",item, carrinho)
+        
     else:
         alteracao+=': alterou'
         tipo='Editou'
-        antigo = db.execute(f'SELECT estoque_ideal FROM {estoque} WHERE item = ? AND carrinho = ?',item, carrinho)
+        antigo = db.execute(f'SELECT estoque_ideal, estoque_ideal_reserva FROM estoque WHERE item = ? AND carrinho = ?',item, carrinho)
         antig = 'inexistente' if not antigo else antigo[0]['estoque_ideal']
+        antig_reserva = 'inexistente' if not antigo else antigo[0]['estoque_ideal_reserva']
         
         # Construir query de update dinamicamente baseado nos campos recebidos
         updates = []
         params = []
         
         if novoNome:
-            existe=db.execute(f'SELECT item FROM {estoque} WHERE item = ? AND carrinho = ?',novoNome, carrinho)
+            existe=db.execute(f'SELECT item FROM estoque WHERE item = ? AND carrinho = ?',novoNome, carrinho)
             if existe:
                 print('Nome igual encontrado no estoque')
-                emit(f'{estoque}Alterado',{'erro':'Nome Igual'})
+                emit('estoqueAlterado',{'erro':'Nome Igual'})
                 return
             updates.append("item=?")
             params.append(novoNome)
             alteracao+= f' Nome do {item} para {novoNome}'
-            ids = get_usado_em_cardapio_ids(db.execute(f"SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?",item, carrinho)[0]['id'], carrinho, estoque)
+            ids = get_usado_em_cardapio_ids(db.execute(f"SELECT id FROM estoque WHERE item = ? AND carrinho = ?",item, carrinho)[0]['id'], carrinho)
             if ids:
                 for cardapio_id in ids:
                     try:
@@ -1256,6 +1400,11 @@ def editEstoque(data):
             if type(antig)!=str and float(estoque_ideal) != float(antig):
                 alteracao+= f' estoque ideal de {float(antig)} para {estoque_ideal}'
 
+        if quantidade is not None:
+            updates.append("quantidade=?")
+            params.append(quantidade)
+            alteracao+= f' quantidade para {quantidade}'
+
         if unidade is not None:
             updates.append("unidade=?")
             params.append(unidade)
@@ -1268,27 +1417,34 @@ def editEstoque(data):
         if quantidade_total is not None:
             updates.append("quantidade_total=?")
             params.append(quantidade_total)
+
+        if estoque_ideal_reserva is not None:
+            updates.append("estoque_ideal_reserva=?")
+            params.append(estoque_ideal_reserva)
+            if type(antig_reserva)!=str and float(estoque_ideal_reserva) != float(antig_reserva):
+                alteracao+= f' estoque ideal de reserva de {float(antig_reserva)} para {estoque_ideal_reserva}'
+
+        if quantidade_reserva is not None:
+            updates.append("quantidade_reserva=?")
+            params.append(quantidade_reserva)
+            alteracao+= f' quantidade de reserva para {quantidade_reserva}'
+
+        if quantidade_total_reserva is not None:
+            updates.append("quantidade_total_reserva=?")
+            params.append(quantidade_total_reserva)
+            alteracao+= f' quantidade total de reserva para {quantidade_total_reserva}'
         
         if updates:
             params.extend([item, carrinho])
-            query = f"UPDATE {estoque} SET {', '.join(updates)} WHERE item=? AND carrinho = ?"
+            query = f"UPDATE estoque SET {', '.join(updates)} WHERE item=? AND carrinho = ?"
             db.execute(query, *params)
-            
-            if mudar_os_dois and novoNome:
-                alteracao+=f' em ambos os estoques'
-                estoque_sec = 'estoque' if estoque=='estoque_geral' else 'estoque_geral'
-                db.execute(f"UPDATE {estoque_sec} SET item=? WHERE item=? AND carrinho = ?",novoNome,item, carrinho)
 
-    insertAlteracoesTable(estoque,alteracao,tipo,f'Botao + no Editar {estoque}',usuario, carrinho)
+    insertAlteracoesTable('estoque',alteracao,tipo,f'Botao + no Editar estoque',usuario, carrinho)
     alteracao=f"{usuario} {tipo} {alteracao}"
     enviar_notificacao_expo('ADM','Estoque Editado',alteracao,token_user,carrinho=carrinho)
     getCardapio({'emitir':True,'carrinho':carrinho})
-    if mudar_os_dois:
-        getEstoqueGeral({'emitir':True,'carrinho':carrinho})
-        getEstoque({'emitir':True,'carrinho':carrinho})
-    elif estoque=='estoque_geral':
-        getEstoqueGeral({'emitir':True,'carrinho':carrinho})
-    else: getEstoque({'emitir':True,'carrinho':carrinho})
+    getEstoque({'emitir':True,'carrinho':carrinho})
+    getEstoqueGeral({'emitir':True,'carrinho':carrinho})
             
 @socketio.on("editCargo")
 def edit_cargo(data):
@@ -1381,6 +1537,76 @@ def arredondar_personalizado(qtd, por_unidade, down=0.30, up=0.31):
     else:
         # faixa morta entre 0.30 e 0.31
         return base
+    
+
+
+def _deduzir_estoque_por_ingrediente(id_ingrediente: str, unidade: str, quantidade_necessaria: float, carrinho: str, estoque_id: int):
+            if not id_ingrediente:
+                return
+            if estoque_id == '1':
+                row = db.execute(
+                f'SELECT quantidade, quantidade_total, quantidade_por_unidade FROM estoque WHERE id = ? AND carrinho = ?',
+                id_ingrediente, carrinho
+            )
+                if row:
+                    quantidade_atual_unid = _to_float(row[0]['quantidade'], 0.0)
+                    quantidade_atual_total = _to_float(row[0]['quantidade_total'], 0.0)
+            else:
+                row = db.execute(
+                    f'SELECT quantidade_reserva, quantidade_total_reserva, quantidade_por_unidade FROM estoque WHERE id = ? AND carrinho = ?',
+                    id_ingrediente, carrinho
+                )
+                if row:
+                    quantidade_atual_unid = _to_float(row[0]['quantidade_reserva'], 0.0)
+                    quantidade_atual_total = _to_float(row[0]['quantidade_total_reserva'], 0.0)
+            print('row', row)
+            if not row:
+                # Se não existe no estoque, nada a fazer aqui
+                return
+            
+            qpu = _to_float(row[0].get('quantidade_por_unidade', 1), 1.0)
+
+            if (unidade or '').strip() == 'unidade(s)':
+                print('deduzindo por unidade interna')
+                nova_qtd_unid = quantidade_atual_unid - _to_float(quantidade_necessaria, 0.0)
+                nova_qtd_total = quantidade_atual_total - (_to_float(quantidade_necessaria, 0.0)* qpu)
+                if nova_qtd_unid < 0:
+                    nova_qtd_unid = 0
+                if nova_qtd_total < 0:
+                    nova_qtd_total = 0
+                # mantém compat: espelha em quantidade_total como já era feito
+                if estoque_id == '1':
+                    db.execute(
+                        f'UPDATE estoque SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
+                        nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+                    )
+                else:
+                    db.execute(
+                        f'UPDATE estoque SET quantidade_reserva = ?, quantidade_total_reserva = ? WHERE id = ? AND carrinho = ?',
+                        nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+                    )
+            else:
+                print('quantidade atual total: ', quantidade_atual_total)
+                print('quantidade necessaria : ', quantidade_necessaria)
+                nova_qtd_total = quantidade_atual_total - _to_float(quantidade_necessaria, 0.0)
+                print('nova quantidade total: ', nova_qtd_total)
+                if nova_qtd_total < 0:
+                    nova_qtd_total = 0
+                # quantidade (em "unidades" internas) arredondada pelo passo quantidade_por_unidade
+                nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
+                if estoque_id == '1':        
+                    db.execute(
+                        f'UPDATE estoque SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
+                        nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+                    )
+                else:
+                    db.execute(
+                        f'UPDATE estoque SET quantidade_reserva = ?, quantidade_total_reserva = ? WHERE id = ? AND carrinho = ?',
+                        nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+                    )
+            # Atualiza painel/assinantes
+            getEstoque({'emitir': True, 'carrinho': carrinho})
+            getEstoqueGeral({'emitir': True, 'carrinho': carrinho})
 
 @socketio.on('insert_order')
 def handle_insert_order(data):
@@ -1415,52 +1641,6 @@ def handle_insert_order(data):
                 return default
 
         # Abate do estoque por ingrediente (id) respeitando unidade
-        def _deduzir_estoque_por_ingrediente(id_ingrediente: str, unidade: str, quantidade_necessaria: float, carrinho: str, estoque_id: int):
-            if not id_ingrediente:
-                return
-            if estoque_id == '1':
-                estoque='estoque'
-            else:
-                estoque='estoque_geral'
-            row = db.execute(
-                f'SELECT quantidade, quantidade_total, quantidade_por_unidade FROM {estoque} WHERE id = ? AND carrinho = ?',
-                id_ingrediente, carrinho
-            )
-            print('row', row)
-            if not row:
-                # Se não existe no estoque, nada a fazer aqui
-                return
-            print('Quantidade unid:', row[0]['quantidade'])
-            quantidade_atual_unid = _to_float(row[0]['quantidade'], 0.0)
-            quantidade_atual_total = _to_float(row[0]['quantidade_total'], 0.0)
-            qpu = _to_float(row[0].get('quantidade_por_unidade', 1), 1.0)
-
-            if (unidade or '').strip() == 'unidade(s)':
-                print('deduzindo por unidade interna')
-                nova_qtd_unid = quantidade_atual_unid - _to_float(quantidade_necessaria, 0.0)
-                nova_qtd_total = quantidade_atual_total - (_to_float(quantidade_necessaria, 0.0)* qpu)
-                if nova_qtd_unid < 0:
-                    nova_qtd_unid = 0
-                if nova_qtd_total < 0:
-                    nova_qtd_total = 0
-                # mantém compat: espelha em quantidade_total como já era feito
-                db.execute(
-                    f'UPDATE {estoque} SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
-                    nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-                )
-            else:
-                nova_qtd_total = quantidade_atual_total - _to_float(quantidade_necessaria, 0.0)
-                if nova_qtd_total < 0:
-                    nova_qtd_total = 0
-                # quantidade (em "unidades" internas) arredondada pelo passo quantidade_por_unidade
-                nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
-                db.execute(
-                    f'UPDATE {estoque} SET quantidade = ?, quantidade_total = ? WHERE id = ? AND carrinho = ?',
-                    nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-                )
-            # Atualiza painel/assinantes
-            getEstoque({'emitir': True, 'carrinho': carrinho})
-            getEstoqueGeral({'emitir': True, 'carrinho': carrinho})
 
         # Percorre a seleção de opções (em qualquer formato aceito) e gera (id, unidade, quantidade_por_item)
         def _iter_ingredientes_de_opcoes(selection):
@@ -1760,63 +1940,97 @@ def handle_insert_order(data):
 
             # ---------- Eventos/estoque ----------
                         # ---------- Eventos/estoque ----------
+            # --- pega ingredientes do item no cardápio ---
             ingredientes_format = db.execute(
                 'SELECT ingredientes FROM cardapio WHERE item = ? AND carrinho = ?',
                 pedido, carrinho
             )
 
-            # Se não achou linha no cardápio, tratamos como se não tivesse ingredientes
-            ingredientes_veri = None
-            if ingredientes_format and 'ingredientes' in ingredientes_format[0]:
-                ingredientes_veri = ingredientes_format[0]['ingredientes']
+            ingredientes_raw = None
+            if ingredientes_format and isinstance(ingredientes_format[0], dict):
+                ingredientes_raw = ingredientes_format[0].get('ingredientes')
 
-            # 1) baixa do próprio item no estoque (quando existir como "Restante" ou cardápio sem registro)
-            if ingredientes_veri is None:
+            # lista de ingredientes do ITEM (vazia => não tem ingredientes)
+            ingredientes_item = str_para_lista_de_dicts(ingredientes_raw) if ingredientes_raw else []
+            if not isinstance(ingredientes_item, list):
+                ingredientes_item = []
+
+            # --- ingredientes das OPÇÕES (lista) ---
+            # IMPORTANTÍSSIMO: vira lista UMA vez, pra poder testar e iterar
+            ingredientes_opcoes = list(_iter_ingredientes_de_opcoes(selecao_opcoes))
+
+            tem_ingred_item   = len(ingredientes_item) > 0
+            tem_ingred_opcoes = len(ingredientes_opcoes) > 0
+
+            # 1) baixa do próprio item no estoque SOMENTE se não houver ingredientes nem no item nem nas opções
+            if (not tem_ingred_item) and (not tem_ingred_opcoes):
                 quantidade_anterior = db.execute(
-                    'SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?',
+                    'SELECT quantidade, quantidade_total, quantidade_por_unidade FROM estoque WHERE item = ? AND carrinho = ?',
                     pedido, carrinho
                 )
                 if quantidade_anterior:
-                    quantidade_nova = _to_float(quantidade_anterior[0]['quantidade'], 0.0) - quantidade
-                    if quantidade_nova < 0:
-                        quantidade_nova = 0
+                    qtd_atual = _to_float(quantidade_anterior[0].get('quantidade'), 0.0)
+                    tot_atual = _to_float(quantidade_anterior[0].get('quantidade_total'), 0.0)
+                    qpu       = _to_float(quantidade_anterior[0].get('quantidade_por_unidade', 1), 1.0)
+                    if qpu <= 0:
+                        qpu = 1.0
+
+                    qtd_nova = qtd_atual - _to_float(quantidade, 0.0)
+                    if qtd_nova < 0:
+                        qtd_nova = 0
+
+                    # mantém total coerente (se você usa quantidade_total)
+                    tot_novo = tot_atual - (_to_float(quantidade, 0.0) * qpu)
+                    if tot_novo < 0:
+                        tot_novo = 0
+
                     db.execute(
-                        'UPDATE estoque SET quantidade = ? WHERE item = ? AND carrinho = ?',
-                        quantidade_nova, pedido, carrinho
+                        'UPDATE estoque SET quantidade = ?, quantidade_total = ? WHERE item = ? AND carrinho = ?',
+                        qtd_nova, tot_novo, pedido, carrinho
                     )
-                    if quantidade_nova < 10:
+
+                    if qtd_nova < 10:
                         emit_for_carrinho(
                             'alerta_restantes',
-                            {'quantidade': quantidade_nova, 'item': pedido},
+                            {'quantidade': qtd_nova, 'item': pedido},
                             broadcast=True,
                             carrinho=carrinho_primario
                         )
+
                     getEstoque({'emitir': True, 'carrinho': carrinho})
 
-            # 2) baixa dos ingredientes do item
-            if ingredientes_veri:
-                ingredientes = str_para_lista_de_dicts(ingredientes_veri) or []
-                for ingrediente in ingredientes:
+            # 2) baixa dos ingredientes do item (se existir)
+            if tem_ingred_item:
+                for ingrediente in ingredientes_item:
+                    if not isinstance(ingrediente, dict):
+                        continue
                     id_ingrediente = ingrediente.get('id')
-                    print('id_ingrediente', id_ingrediente)
+                    if not id_ingrediente:
+                        continue
                     unidade      = ingrediente.get('unidade')
                     qtd_por_item = _to_float(ingrediente.get('quantidade') or 0, 0.0)
                     qtd_total    = qtd_por_item * quantidade
                     estoque_id   = ingrediente.get('estoque_id')
+
                     _deduzir_estoque_por_ingrediente(
                         id_ingrediente, unidade, qtd_total, carrinho, estoque_id
                     )
 
+            # 3) baixa dos ingredientes das OPÇÕES selecionadas (se existir)
+            if tem_ingred_opcoes:
+                for ing in ingredientes_opcoes:
+                    id_ingrediente = ing.get('id')
+                    if not id_ingrediente:
+                        continue
+                    unidade      = ing.get('unidade')
+                    qtd_por_item = _to_float(ing.get('quantidade') or 0, 0.0)
+                    qtd_total    = qtd_por_item * quantidade
+                    estoque_id   = ing.get('estoque_id')
 
-            # 3) baixa dos ingredientes das OPÇÕES selecionadas
-            for ing in _iter_ingredientes_de_opcoes(selecao_opcoes):
-                id_ingrediente = ing.get('id')
-                print('id_ingrediente opcao', id_ingrediente)
-                unidade        = ing.get('unidade')
-                qtd_por_item   = _to_float(ing.get('quantidade') or 0, 0.0)
-                qtd_total      = qtd_por_item * quantidade
-                estoque_id     = ing.get('estoque_id')
-                _deduzir_estoque_por_ingrediente(id_ingrediente, unidade, qtd_total, carrinho, estoque_id)
+                    _deduzir_estoque_por_ingrediente(
+                        id_ingrediente, unidade, qtd_total, carrinho, estoque_id
+                    )
+
 
             # ---- formatações e emissões por categoria (inalteradas) ----
             if categoria == 1:
@@ -2452,21 +2666,36 @@ def _ajustar_estoque_por_ingrediente(
         return
 
     # escolhe tabela de estoque pela flag estoque_id
-    estoque = 'estoque' if str(estoque_id) == '1' else 'estoque_geral'
-
-    row = db.execute(
+    if str(estoque_id) == '1':  
+        row = db.execute(
         f'''
         SELECT quantidade, quantidade_total, quantidade_por_unidade
-        FROM {estoque}
+        FROM estoque
         WHERE id = ? AND carrinho = ?
         ''',
         id_ingrediente, carrinho
     )
+        if row:
+            quantidade_atual_unid = _to_float(row[0].get('quantidade'), 0.0)
+            quantidade_atual_total = _to_float(row[0].get('quantidade_total'), 0.0)
+    else:
+        row = db.execute(
+        f'''
+        SELECT quantidade_reserva, quantidade_total_reserva, quantidade_por_unidade
+        FROM estoque
+        WHERE id = ? AND carrinho = ?
+        ''',
+        id_ingrediente, carrinho
+    )
+        if row:
+            quantidade_atual_unid = _to_float(row[0].get('quantidade_reserva'), 0.0)
+            quantidade_atual_total = _to_float(row[0].get('quantidade_total_reserva'), 0.0)
+    
+    
     if not row:
         return
 
-    quantidade_atual_unid = _to_float(row[0].get('quantidade'), 0.0)
-    quantidade_atual_total = _to_float(row[0].get('quantidade_total'), 0.0)
+    
     qpu = _to_float(row[0].get('quantidade_por_unidade', 1), 1.0)
 
     # + se devolver, - se consumir
@@ -2487,15 +2716,24 @@ def _ajustar_estoque_por_ingrediente(
         if nova_qtd_total < 0:
             nova_qtd_total = 0
         nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
-
-    db.execute(
-        f'''
-        UPDATE {estoque}
-        SET quantidade = ?, quantidade_total = ?
-        WHERE id = ? AND carrinho = ?
-        ''',
-        nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-    )
+    if str(estoque_id) == '1':
+        db.execute(
+            f'''
+            UPDATE estoque
+            SET quantidade = ?, quantidade_total = ?
+            WHERE id = ? AND carrinho = ?
+            ''',
+            nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+        )
+    else:
+        db.execute(
+            f'''
+            UPDATE estoque
+            SET quantidade_reserva = ?, quantidade_total_reserva = ?
+            WHERE id = ? AND carrinho = ?
+            ''',
+            nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+        )
 
 def _to_float(v, default=0.0):
     try:
@@ -2933,20 +3171,20 @@ def atualizar_estoque_geral(data):
         item = i['item']
         anterior=''
         quantidade = i['quantidade']
-        quantidadeAnterior=db.execute("SELECT quantidade,quantidade_por_unidade,quantidade_total FROM estoque_geral WHERE item=? AND carrinho = ?",item, carrinho)
+        quantidadeAnterior=db.execute("SELECT quantidade_reserva,quantidade_por_unidade,quantidade_total_reserva FROM estoque WHERE item=? AND carrinho = ?",item, carrinho)
         if quantidadeAnterior:
-            anterior=quantidadeAnterior[0]['quantidade']
+            anterior=quantidadeAnterior[0]['quantidade_reserva'] or 0
             diferenca=float(anterior)-float(quantidade)
             quantidade_por_unidade=quantidadeAnterior[0]['quantidade_por_unidade'] or 1
-            quantidade_total_anterior=quantidadeAnterior[0]['quantidade_total']
+            quantidade_total_anterior=quantidadeAnterior[0]['quantidade_total_reserva']
             if quantidade_total_anterior is None:
-                    db.execute('UPDATE estoque_geral SET quantidade = ? WHERE item = ? AND carrinho = ?',
+                    db.execute('UPDATE estoque SET quantidade_reserva = ? WHERE item = ? AND carrinho = ?',
                     float(quantidade) ,item, carrinho)
             else:
                 quantidade_diferenca=quantidade_por_unidade*diferenca
                 nova_quantidade_total=quantidade_total_anterior - quantidade_diferenca
                 print('nova quantidade total', nova_quantidade_total)
-                db.execute('UPDATE estoque_geral SET quantidade = ?, quantidade_total = ? WHERE item = ? AND carrinho = ?',
+                db.execute('UPDATE estoque SET quantidade_reserva = ?, quantidade_total_reserva = ? WHERE item = ? AND carrinho = ?',
                         float(quantidade),nova_quantidade_total ,item, carrinho)
         socketio.start_background_task(
             insertAlteracoesTable,
@@ -2957,6 +3195,7 @@ def atualizar_estoque_geral(data):
             'ADM','Estoque Geral Atualizado',f'{usuario} Editou {i["item"]} de {str(anterior)} para {i["quantidade"]}',token_user, carrinho
         )
     getEstoqueGeral({'emitir':True, 'carrinho': carrinho})
+    getEstoque({'emitir':True, 'carrinho': carrinho})
 
 
 @socketio.on('atualizar_estoque')
@@ -2969,6 +3208,7 @@ def atualizar_estoque(data):
     print('itensAlterados no atualizar estoque', itensAlterados)
     token_user = data.get('token')
     print('token_user no atualizar estoque', token_user)
+    
     for i in itensAlterados:
         item = i['item']
         anterior=''
@@ -2997,6 +3237,7 @@ def atualizar_estoque(data):
             'ADM','Estoque Atualizado',f'{usuario} Editou {i["item"]} de {int(anterior)} para {i["quantidade"]}',token_user, carrinho
         )
     getEstoque({'emitir':True, 'carrinho': carrinho})
+    getEstoqueGeral({'emitir':True, 'carrinho': carrinho})
 
 
 @socketio.on('atualizar_comanda')
@@ -3035,22 +3276,35 @@ def atualizar__comanda(data):
         if not id_ingrediente or not quantidade_necessaria:
             return
 
-        estoque = 'estoque' if str(estoque_id) == '1' else 'estoque_geral'
-
-        row = db.execute(
+        if str(estoque_id) == '1':
+            row = db.execute(
             f'''
             SELECT quantidade, quantidade_total, quantidade_por_unidade
-            FROM {estoque}
+            FROM estoque
             WHERE id = ? AND carrinho = ?
             ''',
             id_ingrediente, carrinho
         )
+            if row:
+                quantidade_atual_unid = _to_float(row[0].get('quantidade'), 0.0)
+                quantidade_atual_total = _to_float(row[0].get('quantidade_total'), 0.0)
+        else:
+            row = db.execute(
+            f'''
+            SELECT quantidade_reserva, quantidade_total_reserva, quantidade_por_unidade
+            FROM estoque
+            WHERE id = ? AND carrinho = ?
+            ''',
+            id_ingrediente, carrinho
+        )
+            if row:
+                quantidade_atual_unid = _to_float(row[0].get('quantidade_reserva'), 0.0)
+                quantidade_atual_total = _to_float(row[0].get('quantidade_total_reserva'), 0.0)
         if not row:
             # ingrediente não está cadastrado nesse estoque
             return
 
-        quantidade_atual_unid = _to_float(row[0].get('quantidade'), 0.0)
-        quantidade_atual_total = _to_float(row[0].get('quantidade_total'), 0.0)
+        
         qpu = _to_float(row[0].get('quantidade_por_unidade', 1), 1.0)
 
         # + se devolver, - se consumir
@@ -3071,15 +3325,24 @@ def atualizar__comanda(data):
             if nova_qtd_total < 0:
                 nova_qtd_total = 0
             nova_qtd_unid = arredondar_personalizado(nova_qtd_total, qpu)
-
-        db.execute(
-            f'''
-            UPDATE {estoque}
-            SET quantidade = ?, quantidade_total = ?
-            WHERE id = ? AND carrinho = ?
-            ''',
-            nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
-        )
+        if str(estoque_id) == '1':
+            db.execute(
+                f'''
+                UPDATE estoque
+                SET quantidade = ?, quantidade_total = ?
+                WHERE id = ? AND carrinho = ?
+                ''',
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+            )
+        else:
+            db.execute(
+                f'''
+                UPDATE estoque
+                SET quantidade_reserva = ?, quantidade_total_reserva = ?
+                WHERE id = ? AND carrinho = ?
+                ''',
+                nova_qtd_unid, nova_qtd_total, id_ingrediente, carrinho
+            )
 
     # =====================================================
 
@@ -3444,19 +3707,19 @@ def transferir_para_estoque_carrinho(data):
     carrinho = data.get('carrinho')
     for i in itensAlterados:
         
-        quantidade_antiga = db.execute('SELECT quantidade, quantidade_total,quantidade_por_unidade FROM estoque_geral WHERE item = ? AND carrinho = ?',i['item'], carrinho)
+        quantidade_antiga = db.execute('SELECT quantidade_reserva, quantidade_total_reserva,quantidade_por_unidade FROM estoque WHERE item = ? AND carrinho = ?',i['item'], carrinho)
         existe_no_estoque = db.execute('SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?',i['item'], carrinho)
 
         if quantidade_antiga and existe_no_estoque:
-            quantidade_antig = float(quantidade_antiga[0]['quantidade'])
+            quantidade_antig = float(quantidade_antiga[0]['quantidade_reserva'])
             quantidade_por_unidade=quantidade_antiga[0]['quantidade_por_unidade'] or 1
             quantidade = float(i['quantidade'])
             diferenca=quantidade_antig-quantidade
             nova_quantidade_total=diferenca*quantidade_por_unidade
             db.execute('UPDATE estoque SET quantidade = quantidade + ?, quantidade_total = quantidade_total + ? WHERE item = ? AND carrinho = ?',diferenca,nova_quantidade_total, i['item'], carrinho)
             getEstoque({'emitir':True, 'carrinho': carrinho})
-            insertAlteracoesTable('Estoque Carrinho',f'{i["item"]} de {existe_no_estoque[0]["quantidade"]} para {quantidade_antig-quantidade}','editou','Transferir para Estoque Carrinho',usuario, carrinho)
-            enviar_notificacao_expo('ADM','Estoque Carrinho Tranferir',f'{usuario} Editou {i["item"]} de {existe_no_estoque[0]["quantidade"]} para {quantidade_antig-quantidade}',token, carrinho)
+            insertAlteracoesTable('Estoque Local',f'{i["item"]} de {existe_no_estoque[0]["quantidade"]} para {quantidade_antig-quantidade}','editou','Transferir para Estoque Carrinho',usuario, carrinho)
+            enviar_notificacao_expo('ADM','Estoque Local Tranferir',f'{usuario} Editou {i["item"]} de {existe_no_estoque[0]["quantidade"]} para {quantidade_antig-quantidade}',token, carrinho)
     atualizar_estoque_geral(data)
             
 
@@ -3640,12 +3903,8 @@ def _process_ingredientes_list_inplace(ingredientes_list: list, carrinho):
         if not nome_ingrediente:
             continue
         estoque_id=ingrediente.get('estoque_id', None)
-        if estoque_id=='1':
-            estoque='estoque'
-        else:
-            estoque='estoque_geral'
         ingrediente['estoque_id']=str(estoque_id)
-        ingrediente_id = db.execute(f"SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?", nome_ingrediente, carrinho)[0]["id"]
+        ingrediente_id = db.execute(f"SELECT id FROM estoque WHERE item = ? AND carrinho = ?", nome_ingrediente, carrinho)[0]["id"]
 
         # limpa transitórios e anexa id
         ingrediente.pop('quantidade_estoque', None)
@@ -3782,12 +4041,9 @@ def adicionarCardapio(data):
         nome_ingrediente = ingrediente.get('nome')
         print('ingediente (criar): ', nome_ingrediente)
         estoque_id=ingrediente.get('estoque_id')
-        if estoque_id == 1:
-            estoque='estoque'
-        else:
-            estoque='estoque_geral'
+
         ingrediente['estoque_id'] = str(estoque_id)
-        ingrediente_id = db.execute(f'''SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?;''',nome_ingrediente, carrinho)[0]
+        ingrediente_id = db.execute(f'''SELECT id FROM estoque WHERE item = ? AND carrinho = ?;''',nome_ingrediente, carrinho)[0]
         ingrediente['id'] = str(ingrediente_id['id'])
         print('ingrediente com id: ', ingrediente)   
         ingrediente.pop('quantidade_estoque', None)
@@ -3823,7 +4079,7 @@ def adicionarCardapio(data):
     )
     new_id = db.execute("SELECT last_insert_rowid() AS id")[0]["id"]
     for i in ingredientes_list:
-        add_to_usado_em_cardapio_ids(i['id'], new_id, carrinho, i['estoque_id'])
+        add_to_usado_em_cardapio_ids(i['id'], new_id, carrinho)
     # sincroniza linhas da tabela `opcoes` (tabela *flat*; não armazena ingredientes)
     _sync_opcoes_rows(new_id, item, grupos, carrinho)
 
@@ -3849,8 +4105,6 @@ def adicionar_ingrediente_estoque(data):
     carrinho=data.get('carrinho')
     usuario=data.get('username')  # 'carrinho' ou 'geral'
     for i in ingredientes:
-        destino_estoque=i.get('destino_estoque')
-        print(destino_estoque)
         nome_ingrediente=i['nome']
         quantidade_estoque=i['quantidade_estoque']
         print(quantidade_estoque)
@@ -3861,20 +4115,13 @@ def adicionar_ingrediente_estoque(data):
             quantidade_por_unidade=1
         print(quantidade_por_unidade)
         quantidade_total=quantidade_estoque*quantidade_por_unidade
-        if destino_estoque=='estoque_local' or destino_estoque=='ambos':
-            existe=db.execute('SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?',nome_ingrediente,carrinho)
-            if existe:
-                emit('Erro', {'erro': f'O ingrediente {nome_ingrediente} já existe no estoque do carrinho.'})
-                return
-            db.execute('INSERT INTO estoque (item,quantidade,estoque_ideal,carrinho,unidade,quantidade_por_unidade,quantidade_total) VALUES (?,?,?,?,?,?,?)', nome_ingrediente,quantidade_estoque,estoque_ideal,carrinho,unidade_ingrediente,quantidade_por_unidade,quantidade_total)
-            getEstoque({'emitir':True,'carrinho':carrinho})
-        if destino_estoque=='estoque_geral' or destino_estoque=='ambos':
-            existe=db.execute('SELECT quantidade FROM estoque_geral WHERE item = ? AND carrinho = ?',nome_ingrediente,carrinho)
-            if existe:
-                emit('Erro', {'erro': f'O ingrediente {nome_ingrediente} já existe no estoque geral.'})
-                return
-            db.execute('INSERT INTO estoque_geral (item, quantidade, estoque_ideal, carrinho, unidade, quantidade_por_unidade, quantidade_total) VALUES (?,?,?,?,?,?,?)', nome_ingrediente,quantidade_estoque,estoque_ideal,carrinho,unidade_ingrediente,quantidade_por_unidade,quantidade_total)
-            getEstoqueGeral({'emitir':True,'carrinho':carrinho})
+        existe=db.execute('SELECT quantidade FROM estoque WHERE item = ? AND carrinho = ?',nome_ingrediente,carrinho)
+        if existe:
+            emit('Erro', {'erro': f'O ingrediente {nome_ingrediente} já existe no estoque do carrinho.'})
+            return
+        db.execute('INSERT INTO estoque (item,quantidade,estoque_ideal,carrinho,unidade,quantidade_por_unidade,quantidade_total, quantidade_reserva, quantidade_total_reserva, estoque_ideal_reserva) VALUES (?,?,?,?,?,?,?,?,?,?)', nome_ingrediente,quantidade_estoque,estoque_ideal,carrinho,unidade_ingrediente,quantidade_por_unidade,quantidade_total,quantidade_estoque, quantidade_total, estoque_ideal)
+        getEstoque({'emitir':True,'carrinho':carrinho})
+        getEstoqueGeral({'emitir':True,'carrinho':carrinho})
     
 
 
@@ -3950,16 +4197,12 @@ def editarCardapio(data):
                 nome_ingrediente = (ingrediente.get('nome') or '').strip()
                 # UPSERT no estoque (preferindo RETURNING; fallback se não suportado)
                 estoque_id=ingrediente.get('estoque_id', None)
-                if estoque_id=='1':
-                    estoque='estoque'
-                else:
-                    estoque='estoque_geral'
                 ingrediente['estoque_id']=str(estoque_id)
-                ingrediente_id=db.execute(f'SELECT id FROM {estoque} WHERE item = ? AND carrinho = ?;', nome_ingrediente, carrinho)[0]
+                ingrediente_id=db.execute(f'SELECT id FROM estoque WHERE item = ? AND carrinho = ?;', nome_ingrediente, carrinho)[0]
                 # limpa transitórios e anexa id do estoque
                 if ingrediente_id is not None:
                     ingrediente['id'] = str(ingrediente_id['id'])
-                    add_to_usado_em_cardapio_ids(ingrediente_id['id'], dadoAntigo['id'], carrinho, ingrediente['estoque_id'])
+                    add_to_usado_em_cardapio_ids(ingrediente_id['id'], dadoAntigo['id'], carrinho)
 
         # serializa ingredientes para gravar no cardápio
         ingredientes_json = lista_dicts_para_str(ingredientes_list)
@@ -4062,7 +4305,7 @@ def removerCardapio(data):
                     for ingrediente in ingredientes_list:
                         estoque_id = ingrediente.get('id')
                         if estoque_id:
-                            remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho, ingrediente.get('estoque_id'))
+                            remove_from_usado_em_cardapio_ids(estoque_id, cardapio_id, carrinho)
                 except Exception as e:
                     print(f"Erro ao remover referências do estoque: {e}")
         
