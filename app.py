@@ -2052,7 +2052,7 @@ def inserir_preparo(data):
 
     if estado == 'Pronto':
         print('entrou no pronto')
-        db.execute('UPDATE pedidos SET fim = ? WHERE id = ? AND carrinho = ?', horario, id)
+        db.execute('UPDATE pedidos SET fim = ? WHERE id = ?', horario, id)
     elif estado == 'Em Preparo':
         print('entrou no em preparo')
         db.execute('UPDATE pedidos SET comecar = ? WHERE id = ?', horario, id)
@@ -3827,3 +3827,4 @@ def opcoes_group_props_bulk():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     socketio.run(app, host='0.0.0.0', port=port, debug=not var)
+
